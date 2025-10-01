@@ -1,0 +1,75 @@
+"""Input validation directive (e.g., @validate(rule: "required,min=8"))."""
+directive @validate(rule: String!, message: String) on INPUT_FIELD_DEFINITION| ARGUMENT_DEFINITION
+
+type Query {
+  """Fetch all users."""
+  users: [User!]!
+}
+
+type Mutation {
+  """Create a new user and return it."""
+  registerUser(input: RegisterUserInput!): User!
+}
+
+"""
+A user in the system.
+"""
+type User {
+  """Unique identifier."""
+  id: ID!
+
+  """Primary email address."""
+  email: String!
+
+  """Age in years (optional)."""
+  age: Int
+
+  """Hashed password or placeholder (avoid returning this to clients)."""
+  password: String!
+
+  """
+  IDs of accepted Terms & Conditions versions.
+  At least one must be accepted during registration.
+  """
+  termsAndConditions: [ID!]!
+
+  """Answers provided to the onboarding questionnaire."""
+  questionnaireAnswers: [QuestionnaireAnswer!]!
+}
+
+"""
+One answer in the questionnaire.
+- Either `answerId` or `answerText` must be provided.
+"""
+type QuestionnaireAnswer {
+  """Question identifier."""
+  questionId: ID!
+
+  """Chosen option ID, if the question is multiple-choice."""
+  answerId: ID
+
+  """Free-text answer, if applicable."""
+  answerText: String
+}
+
+"""
+Input counterpart for questionnaire answers.
+- Either `answerId` or `answerText` is required.
+"""
+input QuestionnaireAnswerInput {
+  questionId: ID! @validate(rule: "required")
+  answerId: ID @validate(rule: "required_without=answerText,excluded_with=answerText")
+  answerText: String @validate(rule: "required_without=answerId,excluded_with=answerId")
+}
+
+"""
+Input for user registration.
+"""
+input RegisterUserInput {
+  email: String! @validate(rule: "required,email")
+  password: String! @validate(rule: "required,min=8")
+  confirmPassword: String! @validate(rule: "eqfield=password")
+  age: Int @validate(rule: "omitempty,gte=18", message: "Age must be 18+ or left blank")
+  termsAndConditions: [ID!]! @validate(rule: "required,min=1")
+  questionnaireAnswers: [QuestionnaireAnswerInput!] @validate(rule: "required,min=1,dive")
+}
