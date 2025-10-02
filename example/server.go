@@ -15,11 +15,9 @@ import (
 func main() {
 	resolver := &graph.Resolver{}
 	cfg := generated.Config{Resolvers: resolver}
-	validatorDirective := runtime.NewDirective()
-	cfg.Directives.Validate = validatorDirective.Handler()
 
 	srv := handler.NewDefaultServer(generated.NewExecutableSchema(cfg))
-	srv.AroundFields(validatorDirective.Middleware())
+	srv.AroundFields(runtime.Middleware())
 
 	http.Handle("/", playground.Handler("GraphQL playground", "/query"))
 	http.Handle("/query", srv)

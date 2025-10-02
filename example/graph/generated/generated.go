@@ -43,7 +43,6 @@ type ResolverRoot interface {
 }
 
 type DirectiveRoot struct {
-	Validate func(ctx context.Context, obj any, next graphql.Resolver, rule string, message *string) (res any, err error)
 }
 
 type ComplexityRoot struct {
@@ -362,26 +361,10 @@ var parsedSchema = gqlparser.MustLoadSchema(sources...)
 
 // region    ***************************** args.gotpl *****************************
 
-func (ec *executionContext) dir_validate_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
-	var err error
-	args := map[string]any{}
-	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "rule", ec.unmarshalNString2string)
-	if err != nil {
-		return nil, err
-	}
-	args["rule"] = arg0
-	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "message", ec.unmarshalOString2ᚖstring)
-	if err != nil {
-		return nil, err
-	}
-	args["message"] = arg1
-	return args, nil
-}
-
 func (ec *executionContext) field_Mutation_registerUser_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
-	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNRegisterUserInput2githubᚗcomᚋdanutavadaneiᚋgqlgenᚑvalidatorᚋexampleᚋgraphᚋmodelᚐRegisterUserInput)
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNRegisterUserInput2githubᚗcomᚋdanutavadaneiᚋgqlgenᚑvalidateᚋexampleᚋgraphᚋmodelᚐRegisterUserInput)
 	if err != nil {
 		return nil, err
 	}
@@ -463,7 +446,7 @@ func (ec *executionContext) _Mutation_registerUser(ctx context.Context, field gr
 			return ec.resolvers.Mutation().RegisterUser(ctx, fc.Args["input"].(model.RegisterUserInput))
 		},
 		nil,
-		ec.marshalNUser2ᚖgithubᚗcomᚋdanutavadaneiᚋgqlgenᚑvalidatorᚋexampleᚋgraphᚋmodelᚐUser,
+		ec.marshalNUser2ᚖgithubᚗcomᚋdanutavadaneiᚋgqlgenᚑvalidateᚋexampleᚋgraphᚋmodelᚐUser,
 		true,
 		true,
 	)
@@ -517,7 +500,7 @@ func (ec *executionContext) _Query_users(ctx context.Context, field graphql.Coll
 			return ec.resolvers.Query().Users(ctx)
 		},
 		nil,
-		ec.marshalNUser2ᚕᚖgithubᚗcomᚋdanutavadaneiᚋgqlgenᚑvalidatorᚋexampleᚋgraphᚋmodelᚐUserᚄ,
+		ec.marshalNUser2ᚕᚖgithubᚗcomᚋdanutavadaneiᚋgqlgenᚑvalidateᚋexampleᚋgraphᚋmodelᚐUserᚄ,
 		true,
 		true,
 	)
@@ -900,7 +883,7 @@ func (ec *executionContext) _User_questionnaireAnswers(ctx context.Context, fiel
 			return obj.QuestionnaireAnswers, nil
 		},
 		nil,
-		ec.marshalNQuestionnaireAnswer2ᚕᚖgithubᚗcomᚋdanutavadaneiᚋgqlgenᚑvalidatorᚋexampleᚋgraphᚋmodelᚐQuestionnaireAnswerᚄ,
+		ec.marshalNQuestionnaireAnswer2ᚕᚖgithubᚗcomᚋdanutavadaneiᚋgqlgenᚑvalidateᚋexampleᚋgraphᚋmodelᚐQuestionnaireAnswerᚄ,
 		true,
 		true,
 	)
@@ -2389,89 +2372,25 @@ func (ec *executionContext) unmarshalInputQuestionnaireAnswerInput(ctx context.C
 		switch k {
 		case "questionId":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("questionId"))
-			directive0 := func(ctx context.Context) (any, error) { return ec.unmarshalNID2string(ctx, v) }
-
-			directive1 := func(ctx context.Context) (any, error) {
-				rule, err := ec.unmarshalNString2string(ctx, "required")
-				if err != nil {
-					var zeroVal string
-					return zeroVal, err
-				}
-				if ec.directives.Validate == nil {
-					var zeroVal string
-					return zeroVal, errors.New("directive validate is not implemented")
-				}
-				return ec.directives.Validate(ctx, obj, directive0, rule, nil)
-			}
-
-			tmp, err := directive1(ctx)
+			data, err := ec.unmarshalNID2string(ctx, v)
 			if err != nil {
-				return it, graphql.ErrorOnPath(ctx, err)
+				return it, err
 			}
-			if data, ok := tmp.(string); ok {
-				it.QuestionID = data
-			} else {
-				err := fmt.Errorf(`unexpected type %T from directive, should be string`, tmp)
-				return it, graphql.ErrorOnPath(ctx, err)
-			}
+			it.QuestionID = data
 		case "answerId":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("answerId"))
-			directive0 := func(ctx context.Context) (any, error) { return ec.unmarshalOID2ᚖstring(ctx, v) }
-
-			directive1 := func(ctx context.Context) (any, error) {
-				rule, err := ec.unmarshalNString2string(ctx, "required_without=answerText,excluded_with=answerText")
-				if err != nil {
-					var zeroVal *string
-					return zeroVal, err
-				}
-				if ec.directives.Validate == nil {
-					var zeroVal *string
-					return zeroVal, errors.New("directive validate is not implemented")
-				}
-				return ec.directives.Validate(ctx, obj, directive0, rule, nil)
-			}
-
-			tmp, err := directive1(ctx)
+			data, err := ec.unmarshalOID2ᚖstring(ctx, v)
 			if err != nil {
-				return it, graphql.ErrorOnPath(ctx, err)
+				return it, err
 			}
-			if data, ok := tmp.(*string); ok {
-				it.AnswerID = data
-			} else if tmp == nil {
-				it.AnswerID = nil
-			} else {
-				err := fmt.Errorf(`unexpected type %T from directive, should be *string`, tmp)
-				return it, graphql.ErrorOnPath(ctx, err)
-			}
+			it.AnswerID = data
 		case "answerText":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("answerText"))
-			directive0 := func(ctx context.Context) (any, error) { return ec.unmarshalOString2ᚖstring(ctx, v) }
-
-			directive1 := func(ctx context.Context) (any, error) {
-				rule, err := ec.unmarshalNString2string(ctx, "required_without=answerId,excluded_with=answerId")
-				if err != nil {
-					var zeroVal *string
-					return zeroVal, err
-				}
-				if ec.directives.Validate == nil {
-					var zeroVal *string
-					return zeroVal, errors.New("directive validate is not implemented")
-				}
-				return ec.directives.Validate(ctx, obj, directive0, rule, nil)
-			}
-
-			tmp, err := directive1(ctx)
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
 			if err != nil {
-				return it, graphql.ErrorOnPath(ctx, err)
+				return it, err
 			}
-			if data, ok := tmp.(*string); ok {
-				it.AnswerText = data
-			} else if tmp == nil {
-				it.AnswerText = nil
-			} else {
-				err := fmt.Errorf(`unexpected type %T from directive, should be *string`, tmp)
-				return it, graphql.ErrorOnPath(ctx, err)
-			}
+			it.AnswerText = data
 		}
 	}
 
@@ -2494,179 +2413,46 @@ func (ec *executionContext) unmarshalInputRegisterUserInput(ctx context.Context,
 		switch k {
 		case "email":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("email"))
-			directive0 := func(ctx context.Context) (any, error) { return ec.unmarshalNString2string(ctx, v) }
-
-			directive1 := func(ctx context.Context) (any, error) {
-				rule, err := ec.unmarshalNString2string(ctx, "required,email")
-				if err != nil {
-					var zeroVal string
-					return zeroVal, err
-				}
-				if ec.directives.Validate == nil {
-					var zeroVal string
-					return zeroVal, errors.New("directive validate is not implemented")
-				}
-				return ec.directives.Validate(ctx, obj, directive0, rule, nil)
-			}
-
-			tmp, err := directive1(ctx)
+			data, err := ec.unmarshalNString2string(ctx, v)
 			if err != nil {
-				return it, graphql.ErrorOnPath(ctx, err)
+				return it, err
 			}
-			if data, ok := tmp.(string); ok {
-				it.Email = data
-			} else {
-				err := fmt.Errorf(`unexpected type %T from directive, should be string`, tmp)
-				return it, graphql.ErrorOnPath(ctx, err)
-			}
+			it.Email = data
 		case "password":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("password"))
-			directive0 := func(ctx context.Context) (any, error) { return ec.unmarshalNString2string(ctx, v) }
-
-			directive1 := func(ctx context.Context) (any, error) {
-				rule, err := ec.unmarshalNString2string(ctx, "required,min=8")
-				if err != nil {
-					var zeroVal string
-					return zeroVal, err
-				}
-				if ec.directives.Validate == nil {
-					var zeroVal string
-					return zeroVal, errors.New("directive validate is not implemented")
-				}
-				return ec.directives.Validate(ctx, obj, directive0, rule, nil)
-			}
-
-			tmp, err := directive1(ctx)
+			data, err := ec.unmarshalNString2string(ctx, v)
 			if err != nil {
-				return it, graphql.ErrorOnPath(ctx, err)
+				return it, err
 			}
-			if data, ok := tmp.(string); ok {
-				it.Password = data
-			} else {
-				err := fmt.Errorf(`unexpected type %T from directive, should be string`, tmp)
-				return it, graphql.ErrorOnPath(ctx, err)
-			}
+			it.Password = data
 		case "confirmPassword":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("confirmPassword"))
-			directive0 := func(ctx context.Context) (any, error) { return ec.unmarshalNString2string(ctx, v) }
-
-			directive1 := func(ctx context.Context) (any, error) {
-				rule, err := ec.unmarshalNString2string(ctx, "eqfield=password")
-				if err != nil {
-					var zeroVal string
-					return zeroVal, err
-				}
-				if ec.directives.Validate == nil {
-					var zeroVal string
-					return zeroVal, errors.New("directive validate is not implemented")
-				}
-				return ec.directives.Validate(ctx, obj, directive0, rule, nil)
-			}
-
-			tmp, err := directive1(ctx)
+			data, err := ec.unmarshalNString2string(ctx, v)
 			if err != nil {
-				return it, graphql.ErrorOnPath(ctx, err)
+				return it, err
 			}
-			if data, ok := tmp.(string); ok {
-				it.ConfirmPassword = data
-			} else {
-				err := fmt.Errorf(`unexpected type %T from directive, should be string`, tmp)
-				return it, graphql.ErrorOnPath(ctx, err)
-			}
+			it.ConfirmPassword = data
 		case "age":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("age"))
-			directive0 := func(ctx context.Context) (any, error) { return ec.unmarshalOInt2ᚖint(ctx, v) }
-
-			directive1 := func(ctx context.Context) (any, error) {
-				rule, err := ec.unmarshalNString2string(ctx, "omitempty,gte=18")
-				if err != nil {
-					var zeroVal *int
-					return zeroVal, err
-				}
-				message, err := ec.unmarshalOString2ᚖstring(ctx, "Age must be 18+ or left blank")
-				if err != nil {
-					var zeroVal *int
-					return zeroVal, err
-				}
-				if ec.directives.Validate == nil {
-					var zeroVal *int
-					return zeroVal, errors.New("directive validate is not implemented")
-				}
-				return ec.directives.Validate(ctx, obj, directive0, rule, message)
-			}
-
-			tmp, err := directive1(ctx)
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
 			if err != nil {
-				return it, graphql.ErrorOnPath(ctx, err)
+				return it, err
 			}
-			if data, ok := tmp.(*int); ok {
-				it.Age = data
-			} else if tmp == nil {
-				it.Age = nil
-			} else {
-				err := fmt.Errorf(`unexpected type %T from directive, should be *int`, tmp)
-				return it, graphql.ErrorOnPath(ctx, err)
-			}
+			it.Age = data
 		case "termsAndConditions":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("termsAndConditions"))
-			directive0 := func(ctx context.Context) (any, error) { return ec.unmarshalNID2ᚕstringᚄ(ctx, v) }
-
-			directive1 := func(ctx context.Context) (any, error) {
-				rule, err := ec.unmarshalNString2string(ctx, "required,min=1")
-				if err != nil {
-					var zeroVal []string
-					return zeroVal, err
-				}
-				if ec.directives.Validate == nil {
-					var zeroVal []string
-					return zeroVal, errors.New("directive validate is not implemented")
-				}
-				return ec.directives.Validate(ctx, obj, directive0, rule, nil)
-			}
-
-			tmp, err := directive1(ctx)
+			data, err := ec.unmarshalNID2ᚕstringᚄ(ctx, v)
 			if err != nil {
-				return it, graphql.ErrorOnPath(ctx, err)
+				return it, err
 			}
-			if data, ok := tmp.([]string); ok {
-				it.TermsAndConditions = data
-			} else if tmp == nil {
-				it.TermsAndConditions = nil
-			} else {
-				err := fmt.Errorf(`unexpected type %T from directive, should be []string`, tmp)
-				return it, graphql.ErrorOnPath(ctx, err)
-			}
+			it.TermsAndConditions = data
 		case "questionnaireAnswers":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("questionnaireAnswers"))
-			directive0 := func(ctx context.Context) (any, error) {
-				return ec.unmarshalOQuestionnaireAnswerInput2ᚕᚖgithubᚗcomᚋdanutavadaneiᚋgqlgenᚑvalidatorᚋexampleᚋgraphᚋmodelᚐQuestionnaireAnswerInputᚄ(ctx, v)
-			}
-
-			directive1 := func(ctx context.Context) (any, error) {
-				rule, err := ec.unmarshalNString2string(ctx, "required,min=1,dive")
-				if err != nil {
-					var zeroVal []*model.QuestionnaireAnswerInput
-					return zeroVal, err
-				}
-				if ec.directives.Validate == nil {
-					var zeroVal []*model.QuestionnaireAnswerInput
-					return zeroVal, errors.New("directive validate is not implemented")
-				}
-				return ec.directives.Validate(ctx, obj, directive0, rule, nil)
-			}
-
-			tmp, err := directive1(ctx)
+			data, err := ec.unmarshalOQuestionnaireAnswerInput2ᚕᚖgithubᚗcomᚋdanutavadaneiᚋgqlgenᚑvalidateᚋexampleᚋgraphᚋmodelᚐQuestionnaireAnswerInputᚄ(ctx, v)
 			if err != nil {
-				return it, graphql.ErrorOnPath(ctx, err)
+				return it, err
 			}
-			if data, ok := tmp.([]*model.QuestionnaireAnswerInput); ok {
-				it.QuestionnaireAnswers = data
-			} else if tmp == nil {
-				it.QuestionnaireAnswers = nil
-			} else {
-				err := fmt.Errorf(`unexpected type %T from directive, should be []*github.com/danutavadanei/gqlgen-validate/example/graph/model.QuestionnaireAnswerInput`, tmp)
-				return it, graphql.ErrorOnPath(ctx, err)
-			}
+			it.QuestionnaireAnswers = data
 		}
 	}
 
@@ -3303,7 +3089,7 @@ func (ec *executionContext) marshalNID2ᚕstringᚄ(ctx context.Context, sel ast
 	return ret
 }
 
-func (ec *executionContext) marshalNQuestionnaireAnswer2ᚕᚖgithubᚗcomᚋdanutavadaneiᚋgqlgenᚑvalidatorᚋexampleᚋgraphᚋmodelᚐQuestionnaireAnswerᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.QuestionnaireAnswer) graphql.Marshaler {
+func (ec *executionContext) marshalNQuestionnaireAnswer2ᚕᚖgithubᚗcomᚋdanutavadaneiᚋgqlgenᚑvalidateᚋexampleᚋgraphᚋmodelᚐQuestionnaireAnswerᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.QuestionnaireAnswer) graphql.Marshaler {
 	ret := make(graphql.Array, len(v))
 	var wg sync.WaitGroup
 	isLen1 := len(v) == 1
@@ -3327,7 +3113,7 @@ func (ec *executionContext) marshalNQuestionnaireAnswer2ᚕᚖgithubᚗcomᚋdan
 			if !isLen1 {
 				defer wg.Done()
 			}
-			ret[i] = ec.marshalNQuestionnaireAnswer2ᚖgithubᚗcomᚋdanutavadaneiᚋgqlgenᚑvalidatorᚋexampleᚋgraphᚋmodelᚐQuestionnaireAnswer(ctx, sel, v[i])
+			ret[i] = ec.marshalNQuestionnaireAnswer2ᚖgithubᚗcomᚋdanutavadaneiᚋgqlgenᚑvalidateᚋexampleᚋgraphᚋmodelᚐQuestionnaireAnswer(ctx, sel, v[i])
 		}
 		if isLen1 {
 			f(i)
@@ -3347,7 +3133,7 @@ func (ec *executionContext) marshalNQuestionnaireAnswer2ᚕᚖgithubᚗcomᚋdan
 	return ret
 }
 
-func (ec *executionContext) marshalNQuestionnaireAnswer2ᚖgithubᚗcomᚋdanutavadaneiᚋgqlgenᚑvalidatorᚋexampleᚋgraphᚋmodelᚐQuestionnaireAnswer(ctx context.Context, sel ast.SelectionSet, v *model.QuestionnaireAnswer) graphql.Marshaler {
+func (ec *executionContext) marshalNQuestionnaireAnswer2ᚖgithubᚗcomᚋdanutavadaneiᚋgqlgenᚑvalidateᚋexampleᚋgraphᚋmodelᚐQuestionnaireAnswer(ctx context.Context, sel ast.SelectionSet, v *model.QuestionnaireAnswer) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
@@ -3357,12 +3143,12 @@ func (ec *executionContext) marshalNQuestionnaireAnswer2ᚖgithubᚗcomᚋdanuta
 	return ec._QuestionnaireAnswer(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNQuestionnaireAnswerInput2ᚖgithubᚗcomᚋdanutavadaneiᚋgqlgenᚑvalidatorᚋexampleᚋgraphᚋmodelᚐQuestionnaireAnswerInput(ctx context.Context, v any) (*model.QuestionnaireAnswerInput, error) {
+func (ec *executionContext) unmarshalNQuestionnaireAnswerInput2ᚖgithubᚗcomᚋdanutavadaneiᚋgqlgenᚑvalidateᚋexampleᚋgraphᚋmodelᚐQuestionnaireAnswerInput(ctx context.Context, v any) (*model.QuestionnaireAnswerInput, error) {
 	res, err := ec.unmarshalInputQuestionnaireAnswerInput(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) unmarshalNRegisterUserInput2githubᚗcomᚋdanutavadaneiᚋgqlgenᚑvalidatorᚋexampleᚋgraphᚋmodelᚐRegisterUserInput(ctx context.Context, v any) (model.RegisterUserInput, error) {
+func (ec *executionContext) unmarshalNRegisterUserInput2githubᚗcomᚋdanutavadaneiᚋgqlgenᚑvalidateᚋexampleᚋgraphᚋmodelᚐRegisterUserInput(ctx context.Context, v any) (model.RegisterUserInput, error) {
 	res, err := ec.unmarshalInputRegisterUserInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
@@ -3383,11 +3169,11 @@ func (ec *executionContext) marshalNString2string(ctx context.Context, sel ast.S
 	return res
 }
 
-func (ec *executionContext) marshalNUser2githubᚗcomᚋdanutavadaneiᚋgqlgenᚑvalidatorᚋexampleᚋgraphᚋmodelᚐUser(ctx context.Context, sel ast.SelectionSet, v model.User) graphql.Marshaler {
+func (ec *executionContext) marshalNUser2githubᚗcomᚋdanutavadaneiᚋgqlgenᚑvalidateᚋexampleᚋgraphᚋmodelᚐUser(ctx context.Context, sel ast.SelectionSet, v model.User) graphql.Marshaler {
 	return ec._User(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNUser2ᚕᚖgithubᚗcomᚋdanutavadaneiᚋgqlgenᚑvalidatorᚋexampleᚋgraphᚋmodelᚐUserᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.User) graphql.Marshaler {
+func (ec *executionContext) marshalNUser2ᚕᚖgithubᚗcomᚋdanutavadaneiᚋgqlgenᚑvalidateᚋexampleᚋgraphᚋmodelᚐUserᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.User) graphql.Marshaler {
 	ret := make(graphql.Array, len(v))
 	var wg sync.WaitGroup
 	isLen1 := len(v) == 1
@@ -3411,7 +3197,7 @@ func (ec *executionContext) marshalNUser2ᚕᚖgithubᚗcomᚋdanutavadaneiᚋgq
 			if !isLen1 {
 				defer wg.Done()
 			}
-			ret[i] = ec.marshalNUser2ᚖgithubᚗcomᚋdanutavadaneiᚋgqlgenᚑvalidatorᚋexampleᚋgraphᚋmodelᚐUser(ctx, sel, v[i])
+			ret[i] = ec.marshalNUser2ᚖgithubᚗcomᚋdanutavadaneiᚋgqlgenᚑvalidateᚋexampleᚋgraphᚋmodelᚐUser(ctx, sel, v[i])
 		}
 		if isLen1 {
 			f(i)
@@ -3431,7 +3217,7 @@ func (ec *executionContext) marshalNUser2ᚕᚖgithubᚗcomᚋdanutavadaneiᚋgq
 	return ret
 }
 
-func (ec *executionContext) marshalNUser2ᚖgithubᚗcomᚋdanutavadaneiᚋgqlgenᚑvalidatorᚋexampleᚋgraphᚋmodelᚐUser(ctx context.Context, sel ast.SelectionSet, v *model.User) graphql.Marshaler {
+func (ec *executionContext) marshalNUser2ᚖgithubᚗcomᚋdanutavadaneiᚋgqlgenᚑvalidateᚋexampleᚋgraphᚋmodelᚐUser(ctx context.Context, sel ast.SelectionSet, v *model.User) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
@@ -3760,7 +3546,7 @@ func (ec *executionContext) marshalOInt2ᚖint(ctx context.Context, sel ast.Sele
 	return res
 }
 
-func (ec *executionContext) unmarshalOQuestionnaireAnswerInput2ᚕᚖgithubᚗcomᚋdanutavadaneiᚋgqlgenᚑvalidatorᚋexampleᚋgraphᚋmodelᚐQuestionnaireAnswerInputᚄ(ctx context.Context, v any) ([]*model.QuestionnaireAnswerInput, error) {
+func (ec *executionContext) unmarshalOQuestionnaireAnswerInput2ᚕᚖgithubᚗcomᚋdanutavadaneiᚋgqlgenᚑvalidateᚋexampleᚋgraphᚋmodelᚐQuestionnaireAnswerInputᚄ(ctx context.Context, v any) ([]*model.QuestionnaireAnswerInput, error) {
 	if v == nil {
 		return nil, nil
 	}
@@ -3770,7 +3556,7 @@ func (ec *executionContext) unmarshalOQuestionnaireAnswerInput2ᚕᚖgithubᚗco
 	res := make([]*model.QuestionnaireAnswerInput, len(vSlice))
 	for i := range vSlice {
 		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
-		res[i], err = ec.unmarshalNQuestionnaireAnswerInput2ᚖgithubᚗcomᚋdanutavadaneiᚋgqlgenᚑvalidatorᚋexampleᚋgraphᚋmodelᚐQuestionnaireAnswerInput(ctx, vSlice[i])
+		res[i], err = ec.unmarshalNQuestionnaireAnswerInput2ᚖgithubᚗcomᚋdanutavadaneiᚋgqlgenᚑvalidateᚋexampleᚋgraphᚋmodelᚐQuestionnaireAnswerInput(ctx, vSlice[i])
 		if err != nil {
 			return nil, err
 		}

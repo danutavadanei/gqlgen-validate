@@ -13,10 +13,7 @@ import (
 	"github.com/vektah/gqlparser/v2/gqlerror"
 )
 
-// Directive exposes a runtime validator that can be plugged into the gqlgen
-// directive execution chain. It assumes the gqlgen model structs already carry
-// `validate:"..."` tags that were injected during code generation.
-type Directive struct {
+type runtime struct {
 	validator *validator.Validate
 }
 
@@ -25,8 +22,7 @@ type Validatable interface {
 	IsValidatable()
 }
 
-// NewDirective constructs a Directive instance.
-func NewDirective() *Directive {
+func newRuntime() *runtime {
 	v := validator.New(validator.WithRequiredStructEnabled())
 
 	// Use the JSON tag name in error messages instead of the Go struct field name because
@@ -42,26 +38,19 @@ func NewDirective() *Directive {
 		return fld.Name
 	})
 
-	return &Directive{
+	return &runtime{
 		validator: v,
 	}
 }
 
-// Handler returns a gqlgen-compatible directive implementation, but it's a
-// no-op operation. The actual validation is performed in Middleware() after
-// gqlgen has unmarshalled the arguments.
-func (d *Directive) Handler() func(ctx context.Context, obj any, next graphql.Resolver, rule string, message *string) (res any, err error) {
-	return func(ctx context.Context, obj any, next graphql.Resolver, rule string, message *string) (any, error) {
-		return next(ctx)
-	}
-}
-
 // Middleware validates all resolver arguments after gqlgen unmarshalling.
-func (d *Directive) Middleware() func(ctx context.Context, next graphql.Resolver) (any, error) {
+func Middleware() func(ctx context.Context, next graphql.Resolver) (any, error) {
+	r := newRuntime()
+
 	return func(ctx context.Context, next graphql.Resolver) (any, error) {
 		if fc := graphql.GetFieldContext(ctx); fc != nil {
 			for _, arg := range fc.Args {
-				err := d.validate(ctx, arg)
+				err := r.validate(ctx, arg)
 				if err != nil {
 					return nil, err
 				}
@@ -74,7 +63,7 @@ func (d *Directive) Middleware() func(ctx context.Context, next graphql.Resolver
 
 // validate runs go-playground/validator against the supplied value and maps
 // the errors into the GraphQL response.
-func (d *Directive) validate(ctx context.Context, value any) error {
+func (d *runtime) validate(ctx context.Context, value any) error {
 	if !isValidatable(value) {
 		return nil
 	}

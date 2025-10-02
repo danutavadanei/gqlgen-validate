@@ -97,7 +97,7 @@ func TestValidate(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			d := NewDirective()
+			d := newRuntime()
 			ctx := graphql.WithPathContext(context.Background(), graphql.NewPathWithField("input"))
 
 			err := d.validate(ctx, tc.value)
@@ -138,24 +138,8 @@ func TestIsValidatable(t *testing.T) {
 	}
 }
 
-func TestDirectiveHandler(t *testing.T) {
-	d := NewDirective()
-	h := d.Handler()
-
-	called := false
-	res, err := h(context.Background(), nil, func(ctx context.Context) (any, error) {
-		called = true
-		return "ok", nil
-	}, "required", nil)
-
-	require.NoError(t, err)
-	assert.True(t, called)
-	assert.Equal(t, "ok", res)
-}
-
 func TestDirectiveMiddleware(t *testing.T) {
-	d := NewDirective()
-	mw := d.Middleware()
+	mw := Middleware()
 
 	ctx := graphql.WithPathContext(context.Background(), graphql.NewPathWithField("input"))
 

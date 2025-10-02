@@ -12,17 +12,25 @@ Declare the directive once in your schema:
 
 ```graphql
 """Input validation directive (e.g., @validate(rule: "required,min=8"))."""
-directive @validate(rule: String!, message: String) on INPUT_FIELD_DEFINITION| ARGUMENT_DEFINITION
+directive @validate(rule: String!, message: String) on INPUT_FIELD_DEFINITION | ARGUMENT_DEFINITION
 ```
 
-Attach rules to input types or specific input fields. Field names in the `rule`
-string use the GraphQL casing – the plugin automatically maps them to the Go
+Adjust the config to exclude the directive from runtime execution:
+
+```yaml
+directives:
+  validate:
+    skip_runtime: true
+ ```
+
+Attach rules to specific input fields. Field names in the `rule` string
+use the GraphQL casing – the plugin automatically maps them to the Go
 struct field names produced by gqlgen.
 
 Place `@validate` directly on the input fields (nested fields are fine). Set the
-mandatory `rule` argument to any go-playground/validator expression and, when
+mandatory `rule` argument to any `go-playground/validator` expression and, when
 needed, add a custom `message` to override the default runtime error text. Field
-names in the `rule` string use the GraphQL casing – the plugin automatically
+names in the `rule` string use the GraphQL casing - the plugin automatically
 maps them to the Go struct field names produced by gqlgen. The generated
 middleware runs the validator for any resolver argument whose value implements the
 `Validatable` interface, so you never need to repeat annotations on queries or mutations.
@@ -52,14 +60,14 @@ type AccountMetadata struct {
 
 Because the built-in config loader does not yet support swapping plugins, the
 example project (`example`) uses a tiny wrapper (`cmd/gqlgen`) that calls
-`api.Generate` with `api.ReplacePlugin(gqlvalidator.New())`.
+`api.Generate` with `api.ReplacePlugin(plugin.New())`.
 
-Running `go run cmd/gqlgen generate` will now inject the  appropriate `validate:"..."`
+Running `go run cmd/gqlgen` will now inject the  appropriate `validate:"..."`
 tags wherever your schema uses `@validate`.
 
 ## Runtime validation helper
 
-Once the models carry validation tags you just need to wire up the runtime
+Once the models carry validation tags you just need to wire up the runtime middleware.
 
 ```go
 package main
@@ -76,24 +84,15 @@ func main() {
 	resolver := &graph.Resolver{}
 	cfg := generated.Config{Resolvers: resolver}
 	
-    validatorDirective := runtime.NewDirective()
-
-	// Register directive
-	cfg.Directives.Validate = validatorDirective.Handler()
-
 	srv := handler.NewDefaultServer(generated.NewExecutableSchema(cfg))
-    // Register middleware
-	srv.AroundFields(validatorDirective.Middleware())
+	srv.AroundFields(runtime.Middleware())
 }
 ```
 
 The field middleware ensures every resolver argument is validated before your
 business logic runs. Custom `message` tags added by the plugin automatically
 override the default validator error text, and the directive handler returns
-GraphQL errors that point at the offending fields (e.g. `input.bic`). Even
-though the directive handler function is a no-op (all validation happens in the
-middleware), gqlgen requires it to be registered so the generated schema can
-resolve the directive symbol.
+GraphQL errors that point at the offending fields (e.g. `input.bic`).
 
 ## Example project
 
@@ -101,21 +100,13 @@ A runnable gqlgen server that uses the plugin lives in `example`.
 
 ## Design considerations & roadmap
 
-- **No-op directive handler:** gqlgen generates resolver stubs that always call
-  `cfg.Directives.Validate`. Even though validation happens entirely in the
-  field middleware, we must still register a handler to satisfy that contract.
-  Keeping it as a no-op lets us centralise validation without touching every
-  resolver.
 - **Middleware-first validation:** running validation in `AroundFields`
   guarantees it executes after gqlgen unmarshals inputs and before business
   logic runs. This yields consistent error formatting, avoids per-resolver
   boilerplate, and keeps validation isolated from transport-specific code.
 - **Current limitations:** middleware triggers only for arguments that
   implement the generated `Validatable` marker. Scalars or primitives still need
-  resolver-level checks. Because gqlgen requires the handler, we cannot remove
-  it without upstream changes. The approach also assumes the generated structs
-  remain the source of truth; manually authored models must replicate the
-  `validate:"..."` tags.
+  resolver-level checks.
 
 ## Open Questions
 
