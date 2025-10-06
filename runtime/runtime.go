@@ -22,6 +22,25 @@ type Validatable interface {
 	IsValidatable()
 }
 
+// Middleware validates all resolver arguments that satisfy the Validatable interface
+// after gqlgen unmarshalling.
+func Middleware() func(ctx context.Context, next graphql.Resolver) (any, error) {
+	r := newRuntime()
+
+	return func(ctx context.Context, next graphql.Resolver) (any, error) {
+		if fc := graphql.GetFieldContext(ctx); fc != nil {
+			for _, arg := range fc.Args {
+				err := r.validate(ctx, arg)
+				if err != nil {
+					return nil, err
+				}
+			}
+		}
+
+		return next(ctx)
+	}
+}
+
 func newRuntime() *runtime {
 	v := validator.New(validator.WithRequiredStructEnabled())
 
@@ -40,24 +59,6 @@ func newRuntime() *runtime {
 
 	return &runtime{
 		validator: v,
-	}
-}
-
-// Middleware validates all resolver arguments after gqlgen unmarshalling.
-func Middleware() func(ctx context.Context, next graphql.Resolver) (any, error) {
-	r := newRuntime()
-
-	return func(ctx context.Context, next graphql.Resolver) (any, error) {
-		if fc := graphql.GetFieldContext(ctx); fc != nil {
-			for _, arg := range fc.Args {
-				err := r.validate(ctx, arg)
-				if err != nil {
-					return nil, err
-				}
-			}
-		}
-
-		return next(ctx)
 	}
 }
 
@@ -162,7 +163,6 @@ func fieldMessage(root any, fe validator.FieldError) string {
 		return ""
 	}
 
-	// Skip the root struct name.
 	segments = segments[1:]
 
 	current := rt

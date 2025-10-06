@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strings"
 
 	"github.com/99designs/gqlgen/codegen"
 	"github.com/99designs/gqlgen/codegen/config"
@@ -25,22 +26,49 @@ const (
 	goTagDirectiveName = "goTag"
 )
 
-var (
-	renderTemplate = templates.Render
-
-	//go:embed markers.gotpl
-	markersTemplate string
-)
-
-type Plugin struct {
-	markerTypes map[string]struct{}
-}
+//go:embed markers.gotpl
+var markersTemplate string
 
 var (
 	_ plugin.CodeGenerator = &Plugin{}
 	_ plugin.ConfigMutator = &Plugin{}
 	_ plugin.SchemaMutator = &Plugin{}
 )
+
+var (
+	crossFieldRules = set{
+		"eqfield": {}, "nefield": {}, "gtfield": {}, "gtefield": {}, "ltfield": {}, "ltefield": {},
+	}
+
+	crossFieldRelativeRules = set{
+		"eqcsfield": {}, "necsfield": {}, "gtcsfield": {}, "gtecsfield": {}, "ltcsfield": {}, "ltecsfield": {},
+		"eqsfield": {}, "nesfield": {}, "gtsfield": {}, "gtesfield": {}, "ltsfield": {}, "ltesfield": {},
+		"fieldcontains": {}, "fieldexcludes": {}, "containsfield": {}, "excludesfield": {},
+	}
+
+	multiFieldListRules = set{
+		"required_with": {}, "required_with_all": {}, "required_without": {}, "required_without_all": {},
+		"excluded_with": {}, "excluded_with_all": {}, "excluded_without": {}, "excluded_without_all": {},
+	}
+
+	pairedFieldValueRules = set{
+		"required_if": {}, "required_unless": {}, "excluded_if": {}, "excluded_unless": {},
+		"skip_unless": {},
+	}
+)
+
+var toGo = templates.ToGo
+
+type set map[string]struct{}
+
+func (s set) contains(name string) bool {
+	_, ok := s[name]
+	return ok
+}
+
+type Plugin struct {
+	markerTypes map[string]struct{}
+}
 
 func New() plugin.Plugin {
 	return &Plugin{
@@ -84,11 +112,16 @@ func (p *Plugin) MutateSchema(schema *ast.Schema) error {
 			validate := validateDirectives[0]
 			hasValidateDirectives = true
 
-			if rule, err := getArgumentValueAsString(validate.Arguments.ForName("rule")); err == nil {
-				field.Directives = append(field.Directives, newGoTagDirective("validate", convertRule(rule)))
-			} else {
+			var (
+				rule string
+				err  error
+			)
+
+			if rule, err = getArgumentValueAsString(validate.Arguments.ForName("rule")); err != nil {
 				return fmt.Errorf("@%s on %s.%s requires a rule", directiveName, def.Name, field.Name)
 			}
+
+			field.Directives = append(field.Directives, newGoTagDirective("validate", normalizeRule(rule)))
 
 			if message, err := getArgumentValueAsString(validate.Arguments.ForName("message")); err == nil {
 				field.Directives = append(field.Directives, newGoTagDirective("message", message))
@@ -134,7 +167,7 @@ func (p *Plugin) GenerateCode(cfg *codegen.Data) error {
 		Types []string
 	}{Types: types}
 
-	return renderTemplate(templates.Options{
+	return templates.Render(templates.Options{
 		PackageName:     cfg.Config.Model.Package,
 		Filename:        filename,
 		Template:        markersTemplate,
@@ -144,15 +177,15 @@ func (p *Plugin) GenerateCode(cfg *codegen.Data) error {
 	})
 }
 
-func convertRule(rule string) string {
-	return rule
-}
-
 func getArgumentValueAsString(arg *ast.Argument) (string, error) {
 	var (
 		v  string
 		ok bool
 	)
+
+	if arg == nil {
+		return "", errors.New("argument is nil")
+	}
 
 	if k, err := arg.Value.Value(nil); err == nil {
 		if v, ok = k.(string); !ok {
@@ -187,4 +220,71 @@ func newGoTagDirective(key, value string) *ast.Directive {
 			},
 		},
 	}
+}
+
+func normalizeRule(rule string) string {
+	var out strings.Builder
+	i := 0
+	n := len(rule)
+
+	for i < n {
+		start := i
+		for i < n && rule[i] != ',' && rule[i] != '|' {
+			i++
+		}
+
+		segment := strings.TrimSpace(rule[start:i])
+		if segment != "" {
+			if eq := strings.IndexByte(segment, '='); eq >= 0 {
+				name := segment[:eq]
+				params := segment[eq+1:]
+				segment = name + "=" + transformRuleParams(name, params)
+			}
+			out.WriteString(segment)
+		}
+
+		if i < n {
+			out.WriteByte(rule[i])
+			i++
+		}
+	}
+
+	return out.String()
+}
+
+func transformRuleParams(name, params string) string {
+	switch {
+	case crossFieldRules.contains(name):
+		return toGo(params)
+	case crossFieldRelativeRules.contains(name):
+		return toGoBySeparator(params, ".")
+	case multiFieldListRules.contains(name):
+		return toGoBySeparator(params, " ")
+	case pairedFieldValueRules.contains(name):
+		return toGoPairs(params)
+	default:
+		return params
+	}
+}
+
+func toGoBySeparator(value, separator string) string {
+	segments := strings.Split(value, separator)
+	for i, segment := range segments {
+		segments[i] = toGo(segment)
+	}
+
+	return strings.Join(segments, separator)
+}
+
+func toGoPairs(value string) string {
+	fields := strings.Fields(value)
+	if len(fields)%2 != 0 {
+		return value
+	}
+
+	for i := 0; i < len(fields); i += 2 {
+		fields[i] = toGo(fields[i])
+	}
+
+	return strings.Join(fields, " ")
 }
