@@ -26,7 +26,7 @@ func TestNormalizeDependableRule(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.expect, normalizeRule(tc.input))
+			assert.Equal(t, tc.expect, toGoRuleParams(tc.input))
 		})
 	}
 }

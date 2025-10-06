@@ -121,7 +121,7 @@ func (p *Plugin) MutateSchema(schema *ast.Schema) error {
 				return fmt.Errorf("@%s on %s.%s requires a rule", directiveName, def.Name, field.Name)
 			}
 
-			field.Directives = append(field.Directives, newGoTagDirective("validate", normalizeRule(rule)))
+			field.Directives = append(field.Directives, newGoTagDirective("validate", toGoRuleParams(rule)))
 
 			if message, err := getArgumentValueAsString(validate.Arguments.ForName("message")); err == nil {
 				field.Directives = append(field.Directives, newGoTagDirective("message", message))
@@ -222,7 +222,7 @@ func newGoTagDirective(key, value string) *ast.Directive {
 	}
 }
 
-func normalizeRule(rule string) string {
+func toGoRuleParams(rule string) string {
 	var out strings.Builder
 	i := 0
 	n := len(rule)
