@@ -3,8 +3,7 @@
 `gqlgen-validate` adds first-class validation support for gqlgen projects by
 teaching the code generator about a `@validate` directive. The plugin injects
 `validate:"..."` struct tags into the generated Go models so that you can rely on
-[`go-playground/validator`](https://github.com/go-playground/validator) without
-manually editing generated code.
+[`go-playground/validator`](https://github.com/go-playground/validator) without manually editing generated code.
 
 ## Schema usage
 
@@ -15,14 +14,6 @@ Declare the directive once in your schema:
 directive @validate(rule: String!, message: String) on INPUT_FIELD_DEFINITION | ARGUMENT_DEFINITION
 ```
 
-Adjust the config to exclude the directive from runtime execution:
-
-```yaml
-directives:
-  validate:
-    skip_runtime: true
- ```
-
 Attach rules to specific input fields. Field names in the `rule` string
 use the GraphQL casing – the plugin automatically maps them to the Go
 struct field names produced by gqlgen.
@@ -31,9 +22,7 @@ Place `@validate` directly on the input fields (nested fields are fine). Set the
 mandatory `rule` argument to any `go-playground/validator` expression and, when
 needed, add a custom `message` to override the default runtime error text. Field
 names in the `rule` string use the GraphQL casing - the plugin automatically
-maps them to the Go struct field names produced by gqlgen. The generated
-middleware runs the validator for any resolver argument whose value implements the
-`Validatable` interface, so you never need to repeat annotations on queries or mutations.
+maps them to the Go struct field names produced by gqlgen.
 
 During generation the plugin drops a tiny `IsValidatable` method next to every
 validated input type. The runtime middleware only inspects values that
@@ -58,9 +47,8 @@ type AccountMetadata struct {
 
 ## Integrating with gqlgen
 
-Because the built-in config loader does not yet support swapping plugins, the
-example project (`example`) uses a tiny wrapper (`cmd/gqlgen`) that calls
-`api.Generate` with `api.ReplacePlugin(plugin.New())`.
+To use a plugin during code generation, you need to create a new entry point.
+Please refer to the [example generator](/example/cmd/gqlgen/main.go) for 
 
 Running `go run cmd/gqlgen` will now inject the  appropriate `validate:"..."`
 tags wherever your schema uses `@validate`.
@@ -96,9 +84,9 @@ GraphQL errors that point at the offending fields (e.g. `input.bic`).
 
 ## Example project
 
-A runnable gqlgen server that uses the plugin lives in `example`.
+A runnable gqlgen server that uses the plugin lives in [example](/example)
 
-## Design considerations & roadmap
+## Design considerations
 
 - **Middleware-first validation:** running validation in `AroundFields`
   guarantees it executes after gqlgen unmarshals inputs and before business
@@ -118,7 +106,5 @@ These are areas I am still exploring - not final decisions or guaranteed feature
    extensions payloads.
 3. Support additional schema shapes such as interface inputs or directive-level
    opt-outs without breaking existing tags.
-4. Explore codegen hooks that avoid replacing the builtin model plugin once
-   gqlgen exposes a public field-mutation API.
 
 Have other ideas you would like to see? Open an issue or a PR, and I'm happy to discuss!

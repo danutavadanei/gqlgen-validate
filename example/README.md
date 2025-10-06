@@ -1,11 +1,7 @@
 # Basic gqlgen + @validate Example
 
 This example shows how to use the `@validate` directive and the validator-aware
-model generator in a small gqlgen project. In addition to the required `rule`
-argument, you can provide an optional `message` to customise the error returned
-to the client—for instance the `age` field in this demo uses
-`@validate(rule: "omitempty,gte=18", message: "Age must be 18+ or left blank")`
-so the validation error mirrors product copy instead of the default formatter.
+model generator in a small gqlgen project.
 
 ## Generate code
 
