@@ -1,0 +1,5 @@
+{{- if .Types }}
+{{ range .Types }}
+func ({{ . }}) IsValidatable() {}
+{{ end }}
+{{- end }}

@@ -1,4 +1,4 @@
-package plugin
+package gen
 
 import (
 	"fmt"
@@ -50,7 +50,7 @@ func loadPluginSchema(t *testing.T) *ast.Schema {
 
 func TestModelPlugin_FieldTags(t *testing.T) {
 	schema := loadPluginSchema(t)
-	plugin := New().(*ModelPlugin)
+	plugin := New().(*Plugin)
 	require.NoError(t, plugin.collectRules(schema))
 	plugin.seedGoNames(schema)
 
@@ -141,7 +141,7 @@ func TestModelPlugin_InlineDirectiveDisallowed(t *testing.T) {
 		t.Fatalf("ensureNoArgumentRules should fail")
 	}
 
-	plugin := New().(*ModelPlugin)
+	plugin := New().(*Plugin)
 	err = plugin.collectRules(schema)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "is not supported on argument")
@@ -159,7 +159,7 @@ func TestSetStructTag(t *testing.T) {
 }
 
 func TestConvertRule(t *testing.T) {
-	p := &ModelPlugin{
+	p := &Plugin{
 		goNames: map[string]map[string]string{
 			"SampleInput": {
 				"field": "Field",
@@ -176,7 +176,7 @@ func TestConvertRule(t *testing.T) {
 }
 
 func TestRulesForField(t *testing.T) {
-	p := &ModelPlugin{
+	p := &Plugin{
 		rules: map[string]map[string][]string{
 			"Input": {
 				"name": {" required ", "min=2", "required"},
@@ -200,7 +200,7 @@ func TestCollectRulesUnexpectedArgument(t *testing.T) {
 	schema, err := gqlparser.LoadSchema(&ast.Source{Input: schemaStr, Name: "invalid.graphql"})
 	require.NoError(t, err)
 
-	plugin := New().(*ModelPlugin)
+	plugin := New().(*Plugin)
 	err = plugin.collectRules(schema)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "only supports the 'rule' and 'message' arguments")
@@ -218,7 +218,7 @@ func TestCollectRulesMessageStored(t *testing.T) {
 	schema, err := gqlparser.LoadSchema(&ast.Source{Input: schemaStr, Name: "schema.graphql"})
 	require.NoError(t, err)
 
-	plugin := New().(*ModelPlugin)
+	plugin := New().(*Plugin)
 	require.NoError(t, plugin.collectRules(schema))
 
 	assert.Equal(t, "custom message", plugin.messages["SampleInput"]["name"])
@@ -236,24 +236,24 @@ func TestCollectRulesDuplicateDirective(t *testing.T) {
 	schema, err := gqlparser.LoadSchema(&ast.Source{Input: schemaStr, Name: "invalid.graphql"})
 	require.NoError(t, err)
 
-	plugin := New().(*ModelPlugin)
+	plugin := New().(*Plugin)
 	err = plugin.collectRules(schema)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "may only be applied once per field")
 }
 
 func TestModelPlugin_Name(t *testing.T) {
-	plugin := New().(*ModelPlugin)
+	plugin := New().(*Plugin)
 	assert.Equal(t, "modelgen", plugin.Name())
 }
 
 func TestModelPlugin_MutateConfigNil(t *testing.T) {
-	plugin := New().(*ModelPlugin)
+	plugin := New().(*Plugin)
 	assert.Error(t, plugin.MutateConfig(nil))
 }
 
 func TestRenderMarkersRemovesFile(t *testing.T) {
-	p := &ModelPlugin{rules: map[string]map[string][]string{}}
+	p := &Plugin{rules: map[string]map[string][]string{}}
 
 	tmpDir := t.TempDir()
 	filename := filepath.Join(tmpDir, "models_gen.go")
@@ -292,7 +292,7 @@ func TestModelPlugin_MutateConfigSuccess(t *testing.T) {
 		return nil
 	}
 
-	plugin := New().(*ModelPlugin)
+	plugin := New().(*Plugin)
 	plugin.mutate = func(*config.Config) error { return nil }
 
 	tmpDir := t.TempDir()
@@ -342,7 +342,7 @@ func TestModelPlugin_MutateConfigPropagatesError(t *testing.T) {
 	schema, err := gqlparser.LoadSchema(&ast.Source{Input: schemaStr, Name: "schema.graphql"})
 	require.NoError(t, err)
 
-	plugin := New().(*ModelPlugin)
+	plugin := New().(*Plugin)
 	plugin.mutate = func(*config.Config) error { return fmt.Errorf("boom") }
 
 	cfg := &config.Config{

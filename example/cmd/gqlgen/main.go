@@ -6,7 +6,7 @@ import (
 	"github.com/99designs/gqlgen/api"
 	"github.com/99designs/gqlgen/codegen/config"
 
-	"github.com/danutavadanei/gqlgen-validate/plugin"
+	"github.com/danutavadanei/gqlgen-validate/gen"
 )
 
 func main() {
@@ -15,7 +15,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	if err = api.Generate(cfg, api.ReplacePlugin(plugin.New())); err != nil {
+	if err = api.Generate(cfg, api.AddPlugin(gen.New())); err != nil {
 		log.Fatal(err)
 	}
 }

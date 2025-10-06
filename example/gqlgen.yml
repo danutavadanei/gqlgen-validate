@@ -13,7 +13,3 @@ resolver:
   layout: follow-schema
   dir: graph
   package: graph
-
-directives:
-  validate:
-    skip_runtime: true

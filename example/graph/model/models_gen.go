@@ -23,15 +23,15 @@ type QuestionnaireAnswer struct {
 // - Either `answerId` or `answerText` is required.
 type QuestionnaireAnswerInput struct {
 	QuestionID string  `json:"questionId" validate:"required"`
-	AnswerID   *string `json:"answerId,omitempty" validate:"required_without=AnswerText,excluded_with=AnswerText"`
-	AnswerText *string `json:"answerText,omitempty" validate:"required_without=AnswerID,excluded_with=AnswerID"`
+	AnswerID   *string `json:"answerId,omitempty" validate:"required_without=answerText,excluded_with=answerText"`
+	AnswerText *string `json:"answerText,omitempty" validate:"required_without=answerId,excluded_with=answerId"`
 }
 
 // Input for user registration.
 type RegisterUserInput struct {
 	Email                string                      `json:"email" validate:"required,email"`
 	Password             string                      `json:"password" validate:"required,min=8"`
-	ConfirmPassword      string                      `json:"confirmPassword" validate:"eqfield=Password"`
+	ConfirmPassword      string                      `json:"confirmPassword" validate:"eqfield=password"`
 	Age                  *int                        `json:"age,omitempty" validate:"omitempty,gte=18" message:"Age must be 18+ or left blank"`
 	TermsAndConditions   []string                    `json:"termsAndConditions" validate:"required,min=1"`
 	QuestionnaireAnswers []*QuestionnaireAnswerInput `json:"questionnaireAnswers,omitempty" validate:"required,min=1,dive"`

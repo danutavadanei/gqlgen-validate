@@ -279,7 +279,7 @@ func (ec *executionContext) introspectType(name string) (*introspection.Type, er
 
 var sources = []*ast.Source{
 	{Name: "../schema.gql", Input: `"""Input validation directive (e.g., @validate(rule: "required,min=8"))."""
-directive @validate(rule: String!, message: String) on INPUT_FIELD_DEFINITION| ARGUMENT_DEFINITION
+directive @validate(rule: String!, message: String) on INPUT_FIELD_DEFINITION | ARGUMENT_DEFINITION
 
 type Query {
   """Fetch all users."""
