@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/99designs/gqlgen/graphql"
 	"github.com/go-playground/validator/v10"
@@ -14,7 +15,15 @@ import (
 )
 
 type runtime struct {
-	validator *validator.Validate
+	validator  *validator.Validate
+	fieldCache sync.Map // map[reflect.Type]map[string]field
+}
+
+type field struct {
+	goName   string
+	jsonName string
+	message  string
+	typ      reflect.Type
 }
 
 // validatable marks gqlgen structs that carry validation rules.
@@ -30,8 +39,7 @@ func Middleware() func(ctx context.Context, next graphql.Resolver) (any, error) 
 	return func(ctx context.Context, next graphql.Resolver) (any, error) {
 		if fc := graphql.GetFieldContext(ctx); fc != nil {
 			for _, arg := range fc.Args {
-				err := r.validate(ctx, arg)
-				if err != nil {
+				if err := r.validate(ctx, arg); err != nil {
 					return nil, err
 				}
 			}
@@ -64,13 +72,12 @@ func newRuntime() *runtime {
 
 // validate runs go-playground/validator against the supplied value and maps
 // the errors into the GraphQL response.
-func (d *runtime) validate(ctx context.Context, value any) error {
-	if !isValidatable(value) {
+func (r *runtime) validate(ctx context.Context, root any) error {
+	if !isValidatable(root) {
 		return nil
 	}
 
-	err := d.validator.StructCtx(ctx, value)
-	if err != nil {
+	if err := r.validator.StructCtx(ctx, root); err != nil {
 		var ves validator.ValidationErrors
 
 		ok := errors.As(err, &ves)
@@ -79,16 +86,13 @@ func (d *runtime) validate(ctx context.Context, value any) error {
 		}
 
 		for i, ve := range ves {
-			// We skip the first segment because it's always the struct name.
-			path := strings.Split(ve.Namespace(), ".")[1:]
-			pathCtx := extendGraphQLPath(ctx, value, path)
-			override := fieldMessage(value, ve)
-			msg := formatValidationMessage(ve, override)
+			pctx := r.getPathContext(ctx, root, ve)
+			msg := r.messageFor(root, ve)
 
 			err = &gqlerror.Error{
 				Message: msg,
-				Path:    graphql.GetPath(pathCtx),
-				Extensions: map[string]interface{}{
+				Path:    graphql.GetPath(pctx),
+				Extensions: map[string]any{
 					"code":  "BAD_USER_INPUT",
 					"field": ve.Field(),
 					"rule":  ve.Tag(),
@@ -97,22 +101,156 @@ func (d *runtime) validate(ctx context.Context, value any) error {
 
 			// If it's the last error we need to return it so that the request fails.
 			if i == len(ves)-1 {
-				return graphql.ErrorOnPath(pathCtx, err)
+				return graphql.ErrorOnPath(pctx, err)
 			}
 
-			graphql.AddError(pathCtx, err)
+			graphql.AddError(pctx, err)
 		}
 	}
 
 	return nil
 }
 
-func isValidatable(value any) bool {
-	if value == nil {
-		return false
+func (r *runtime) getPathContext(ctx context.Context, root any, fieldError validator.FieldError) context.Context {
+	segments := strings.Split(fieldError.Namespace(), ".")
+	if len(segments) == 0 {
+		return ctx
+	}
+	segments = segments[1:]
+
+	pctx := ctx
+	rt := reflect.TypeOf(root)
+	rv := reflect.ValueOf(root)
+
+	for _, raw := range segments {
+		name, idx := parseSegment(raw)
+
+		json, nextT, nextV := r.resolve(rt, rv, name)
+		if json == "" {
+			json = name
+		}
+		pctx = graphql.WithPathContext(pctx, graphql.NewPathWithField(json))
+
+		rt, rv = nextT, nextV
+		if idx != nil {
+			rt, rv = advanceCollection(rt, rv, *idx)
+			pctx = graphql.WithPathContext(pctx, graphql.NewPathWithIndex(*idx))
+		}
+	}
+	return pctx
+}
+
+func (r *runtime) resolve(typ reflect.Type, value reflect.Value, goName string) (string, reflect.Type, reflect.Value) {
+	typ = derefType(typ)
+	if typ == nil || typ.Kind() != reflect.Struct {
+		return goName, nil, reflect.Value{}
 	}
 
-	if _, ok := value.(validatable); !ok {
+	f := r.fieldFor(typ, goName)
+	json := f.jsonName
+	nextTyp := f.typ
+
+	value = derefValue(value)
+	if value.IsValid() && value.Kind() == reflect.Struct {
+		fv := value.FieldByName(goName)
+		if fv.IsValid() {
+			return json, nextTyp, fv
+		}
+	}
+
+	return json, nextTyp, reflect.Value{}
+}
+
+func (r *runtime) fieldFor(typ reflect.Type, goName string) *field {
+	typ = derefType(typ)
+	if cached, ok := r.fieldCache.Load(typ); ok {
+		return cached.(map[string]*field)[goName]
+	}
+
+	out := make(map[string]*field, typ.NumField())
+	for i := 0; i < typ.NumField(); i++ {
+		f := typ.Field(i)
+		if f.PkgPath != "" {
+			continue
+		}
+
+		json := f.Tag.Get("json")
+		json = strings.Split(json, ",")[0]
+		if json == "" || json == "-" {
+			json = f.Name
+		}
+
+		out[f.Name] = &field{
+			goName:   f.Name,
+			jsonName: json,
+			message:  f.Tag.Get("message"),
+			typ:      f.Type,
+		}
+	}
+
+	r.fieldCache.Store(typ, out)
+
+	return out[goName]
+}
+
+func (r *runtime) messageFor(root any, fieldError validator.FieldError) string {
+	if msg := r.lookupMessage(root, fieldError); msg != "" {
+		return msg
+	}
+
+	if p := fieldError.Param(); p != "" {
+		return fmt.Sprintf("%s failed '%s' (param: %s)", fieldError.Field(), fieldError.Tag(), p)
+	}
+
+	return fmt.Sprintf("%s failed '%s'", fieldError.Field(), fieldError.Tag())
+}
+
+func (r *runtime) lookupMessage(root any, fieldError validator.FieldError) string {
+	if root == nil {
+		return ""
+	}
+	rt := derefType(reflect.TypeOf(root))
+	if rt == nil || rt.Kind() != reflect.Struct {
+		return ""
+	}
+
+	f := r.fieldFor(rt, fieldError.StructField())
+	if f.message != "" {
+		return f.message
+	}
+
+	segments := strings.Split(fieldError.StructNamespace(), ".")
+	if len(segments) == 0 {
+		return ""
+	}
+	segments = segments[1:]
+
+	curr := rt
+	for i, raw := range segments {
+		name, _ := parseSegment(raw)
+		if name == "" {
+			continue
+		}
+		f = r.fieldFor(curr, name)
+		if i == len(segments)-1 {
+			return f.message
+		}
+		nextT := derefType(f.typ)
+
+		if nextT.Kind() == reflect.Slice || nextT.Kind() == reflect.Array || nextT.Kind() == reflect.Map {
+			nextT = derefType(nextT.Elem())
+		}
+
+		if nextT == nil || nextT.Kind() != reflect.Struct {
+			return ""
+		}
+		curr = nextT
+	}
+	return ""
+}
+
+func isValidatable(value any) bool {
+	if value == nil {
 		return false
 	}
 
@@ -121,191 +259,29 @@ func isValidatable(value any) bool {
 		return false
 	}
 
-	return true
+	_, ok := value.(validatable)
+	return ok
 }
 
-func formatValidationMessage(fe validator.FieldError, override string) string {
-	if override != "" {
-		return override
-	}
+func advanceCollection(typ reflect.Type, value reflect.Value, idx int) (reflect.Type, reflect.Value) {
+	typ = derefType(typ)
+	value = derefValue(value)
 
-	if fe.Param() != "" {
-		return fmt.Sprintf("%s failed on the '%s' rule (param: %s)", fe.Field(), fe.Tag(), fe.Param())
-	}
-
-	return fmt.Sprintf("%s failed on the '%s' rule", fe.Field(), fe.Tag())
-}
-
-func fieldMessage(root any, fe validator.FieldError) string {
-	if root == nil {
-		return ""
-	}
-
-	rt := reflect.TypeOf(root)
-	for rt.Kind() == reflect.Pointer {
-		if rt.Elem() == nil {
-			return ""
-		}
-		rt = rt.Elem()
-	}
-
-	if rt.Kind() != reflect.Struct {
-		return ""
-	}
-
-	path := fe.StructNamespace()
-	if path == "" {
-		return fieldTagMessage(rt, fe.StructField())
-	}
-
-	segments := strings.Split(path, ".")
-	if len(segments) == 0 {
-		return ""
-	}
-
-	segments = segments[1:]
-
-	current := rt
-	for i, segment := range segments {
-		segment = trimCollectionIndex(segment)
-		if segment == "" {
-			continue
-		}
-
-		field, ok := current.FieldByName(segment)
-		if !ok {
-			return ""
-		}
-
-		if i == len(segments)-1 {
-			return field.Tag.Get("message")
-		}
-
-		current = derefType(field.Type)
-		if current.Kind() == reflect.Slice || current.Kind() == reflect.Array {
-			current = derefType(current.Elem())
-		}
-		if current.Kind() == reflect.Map {
-			current = derefType(current.Elem())
-		}
-		if current.Kind() != reflect.Struct {
-			return ""
-		}
-	}
-
-	return ""
-}
-
-func fieldTagMessage(rt reflect.Type, fieldName string) string {
-	field, ok := rt.FieldByName(fieldName)
-	if !ok {
-		return ""
-	}
-
-	return field.Tag.Get("message")
-}
-
-func trimCollectionIndex(segment string) string {
-	if segment == "" {
-		return ""
-	}
-
-	idx := strings.Index(segment, "[")
-	if idx == -1 {
-		return segment
-	}
-
-	return segment[:idx]
-}
-
-func extendGraphQLPath(ctx context.Context, root any, target []string) context.Context {
-	if len(target) == 0 {
-		return ctx
-	}
-
-	pathCtx := ctx
-	typ := reflect.TypeOf(root)
-	val := reflect.ValueOf(root)
-
-	for _, raw := range target {
-		name, idx := splitNamespaceSegment(raw)
-		fieldName, nextType, nextValue := resolvePathSegment(typ, val, name)
-
-		pathCtx = graphql.WithPathContext(pathCtx, graphql.NewPathWithField(fieldName))
-
-		typ = nextType
-		val = nextValue
-
-		if idx != nil {
-			typ, val = advanceCollection(typ, val, *idx)
-			pathCtx = graphql.WithPathContext(pathCtx, graphql.NewPathWithIndex(*idx))
-		}
-	}
-
-	return pathCtx
-}
-
-func resolvePathSegment(typ reflect.Type, val reflect.Value, name string) (string, reflect.Type, reflect.Value) {
-	baseName := name
-	if typ == nil {
-		return baseName, nil, reflect.Value{}
-	}
-
-	rootType := derefType(typ)
-	if rootType == nil || rootType.Kind() != reflect.Struct {
-		return baseName, nil, reflect.Value{}
-	}
-
-	field, ok := rootType.FieldByName(name)
-	if !ok {
-		return baseName, nil, reflect.Value{}
-	}
-
-	jsonName := jsonFieldName(field)
-	if jsonName == "" {
-		jsonName = field.Name
-	}
-
-	var nextVal reflect.Value
-	currentVal := derefValue(val)
-	if currentVal.IsValid() && currentVal.Kind() == reflect.Struct {
-		fv := currentVal.FieldByName(field.Name)
-		if fv.IsValid() {
-			nextVal = fv
-		}
-	}
-
-	return jsonName, field.Type, nextVal
-}
-
-func advanceCollection(typ reflect.Type, val reflect.Value, idx int) (reflect.Type, reflect.Value) {
-	if typ == nil {
-		return nil, reflect.Value{}
-	}
-
-	collectionType := derefType(typ)
-	if collectionType == nil {
-		return nil, reflect.Value{}
-	}
-
-	currentVal := derefValue(val)
-
-	switch collectionType.Kind() {
+	switch typ.Kind() {
 	case reflect.Slice, reflect.Array:
-		elemType := collectionType.Elem()
-		if currentVal.IsValid() && idx >= 0 && idx < currentVal.Len() {
-			return elemType, currentVal.Index(idx)
+		et := typ.Elem()
+		if value.IsValid() && idx >= 0 && idx < value.Len() {
+			return et, value.Index(idx)
 		}
-		return elemType, reflect.Value{}
+		return et, reflect.Value{}
 	case reflect.Map:
-		elemType := collectionType.Elem()
-		return elemType, reflect.Value{}
+		return typ.Elem(), reflect.Value{}
 	default:
-		return collectionType, currentVal
+		return typ, value
 	}
 }
 
-func splitNamespaceSegment(segment string) (string, *int) {
+func parseSegment(segment string) (string, *int) {
 	if segment == "" {
 		return "", nil
 	}
@@ -332,18 +308,6 @@ func splitNamespaceSegment(segment string) (string, *int) {
 	}
 
 	return name, &n
-}
-
-func jsonFieldName(field reflect.StructField) string {
-	tag := field.Tag.Get("json")
-	if tag == "" {
-		return ""
-	}
-	name := strings.Split(tag, ",")[0]
-	if name == "" || name == "-" {
-		return ""
-	}
-	return name
 }
 
 func derefValue(v reflect.Value) reflect.Value {

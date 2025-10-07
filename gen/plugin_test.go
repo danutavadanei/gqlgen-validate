@@ -207,7 +207,7 @@ func TestMutateConfigRespectsExistingDefinitions(t *testing.T) {
 }
 
 func TestGenerateCodeRemovesStaleFile(t *testing.T) {
-	p := &Plugin{markerTypes: make(map[string]struct{})}
+	p := &Plugin{markerTypes: make(set)}
 	tmpDir := t.TempDir()
 	modelPath := filepath.Join(tmpDir, "models_gen.go")
 	createConfigPackage(t, modelPath)
@@ -223,7 +223,7 @@ func TestGenerateCodeRemovesStaleFile(t *testing.T) {
 }
 
 func TestGenerateCodeWritesMarkers(t *testing.T) {
-	p := &Plugin{markerTypes: map[string]struct{}{
+	p := &Plugin{markerTypes: set{
 		"OwnershipInput": {},
 		"ProxyInput":     {},
 	}}

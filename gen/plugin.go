@@ -61,18 +61,26 @@ var toGo = templates.ToGo
 
 type set map[string]struct{}
 
+func (s set) add(name string) {
+	s[name] = struct{}{}
+}
+
 func (s set) contains(name string) bool {
 	_, ok := s[name]
 	return ok
 }
 
+func (s set) values() []string {
+	return slices.Collect(maps.Keys(s))
+}
+
 type Plugin struct {
-	markerTypes map[string]struct{}
+	markerTypes set
 }
 
 func New() plugin.Plugin {
 	return &Plugin{
-		markerTypes: make(map[string]struct{}),
+		markerTypes: make(set),
 	}
 }
 
@@ -129,7 +137,7 @@ func (p *Plugin) MutateSchema(schema *ast.Schema) error {
 		}
 
 		if hasValidateDirectives {
-			p.markerTypes[typeName] = struct{}{}
+			p.markerTypes.add(typeName)
 		}
 	}
 
@@ -153,7 +161,7 @@ func (p *Plugin) MutateConfig(cfg *config.Config) error {
 }
 
 func (p *Plugin) GenerateCode(cfg *codegen.Data) error {
-	types := slices.Collect(maps.Keys(p.markerTypes))
+	types := p.markerTypes.values()
 	sort.Strings(types)
 
 	filename := filepath.Join(filepath.Dir(cfg.Config.Model.Filename), "validatable_gen.go")
