@@ -14,28 +14,10 @@ import (
 	"github.com/vektah/gqlparser/v2/gqlerror"
 )
 
-type runtime struct {
-	validator  *validator.Validate
-	fieldCache sync.Map // map[reflect.Type]map[string]field
-}
-
-type field struct {
-	goName   string
-	jsonName string
-	message  string
-	typ      reflect.Type
-}
-
-// validatable marks gqlgen structs that carry validation rules.
-type validatable interface {
-	IsValidatable()
-}
-
 // Middleware validates all resolver arguments that satisfy the validatable interface
 // after gqlgen unmarshalling.
 func Middleware() func(ctx context.Context, next graphql.Resolver) (any, error) {
 	r := newRuntime()
-
 	return func(ctx context.Context, next graphql.Resolver) (any, error) {
 		if fc := graphql.GetFieldContext(ctx); fc != nil {
 			for _, arg := range fc.Args {
@@ -44,9 +26,25 @@ func Middleware() func(ctx context.Context, next graphql.Resolver) (any, error) 
 				}
 			}
 		}
-
 		return next(ctx)
 	}
+}
+
+// validatable marks gqlgen structs that carry validation rules.
+type validatable interface {
+	IsValidatable()
+}
+
+type runtime struct {
+	validator  *validator.Validate
+	fieldCache sync.Map // map[reflect.Type]map[string]*field
+}
+
+type field struct {
+	goName   string
+	jsonName string
+	message  string
+	typ      reflect.Type
 }
 
 func newRuntime() *runtime {
@@ -61,13 +59,10 @@ func newRuntime() *runtime {
 				return name
 			}
 		}
-
 		return fld.Name
 	})
 
-	return &runtime{
-		validator: v,
-	}
+	return &runtime{validator: v}
 }
 
 // validate runs go-playground/validator against the supplied value and maps
@@ -79,9 +74,7 @@ func (r *runtime) validate(ctx context.Context, root any) error {
 
 	if err := r.validator.StructCtx(ctx, root); err != nil {
 		var ves validator.ValidationErrors
-
-		ok := errors.As(err, &ves)
-		if !ok || len(ves) == 0 {
+		if !errors.As(err, &ves) || len(ves) == 0 {
 			return graphql.ErrorOnPath(ctx, err)
 		}
 
@@ -103,7 +96,6 @@ func (r *runtime) validate(ctx context.Context, root any) error {
 			if i == len(ves)-1 {
 				return graphql.ErrorOnPath(pctx, err)
 			}
-
 			graphql.AddError(pctx, err)
 		}
 	}
@@ -152,8 +144,7 @@ func (r *runtime) resolve(typ reflect.Type, value reflect.Value, goName string) 
 
 	value = derefValue(value)
 	if value.IsValid() && value.Kind() == reflect.Struct {
-		fv := value.FieldByName(goName)
-		if fv.IsValid() {
+		if fv := value.FieldByName(goName); fv.IsValid() {
 			return json, nextTyp, fv
 		}
 	}
@@ -163,6 +154,7 @@ func (r *runtime) resolve(typ reflect.Type, value reflect.Value, goName string) 
 
 func (r *runtime) fieldFor(typ reflect.Type, goName string) *field {
 	typ = derefType(typ)
+
 	if cached, ok := r.fieldCache.Load(typ); ok {
 		return cached.(map[string]*field)[goName]
 	}
@@ -189,7 +181,6 @@ func (r *runtime) fieldFor(typ reflect.Type, goName string) *field {
 	}
 
 	r.fieldCache.Store(typ, out)
-
 	return out[goName]
 }
 
@@ -197,11 +188,9 @@ func (r *runtime) messageFor(root any, fieldError validator.FieldError) string {
 	if msg := r.lookupMessage(root, fieldError); msg != "" {
 		return msg
 	}
-
 	if p := fieldError.Param(); p != "" {
 		return fmt.Sprintf("%s failed '%s' (param: %s)", fieldError.Field(), fieldError.Tag(), p)
 	}
-
 	return fmt.Sprintf("%s failed '%s'", fieldError.Field(), fieldError.Tag())
 }
 
@@ -209,11 +198,13 @@ func (r *runtime) lookupMessage(root any, fieldError validator.FieldError) strin
 	if root == nil {
 		return ""
 	}
+
 	rt := derefType(reflect.TypeOf(root))
 	if rt == nil || rt.Kind() != reflect.Struct {
 		return ""
 	}
 
+	// Direct field override.
 	f := r.fieldFor(rt, fieldError.StructField())
 	if f.message != "" {
 		return f.message
@@ -231,16 +222,16 @@ func (r *runtime) lookupMessage(root any, fieldError validator.FieldError) strin
 		if name == "" {
 			continue
 		}
+
 		f = r.fieldFor(curr, name)
 		if i == len(segments)-1 {
 			return f.message
 		}
-		nextT := derefType(f.typ)
 
+		nextT := derefType(f.typ)
 		if nextT.Kind() == reflect.Slice || nextT.Kind() == reflect.Array || nextT.Kind() == reflect.Map {
 			nextT = derefType(nextT.Elem())
 		}
-
 		if nextT == nil || nextT.Kind() != reflect.Struct {
 			return ""
 		}
@@ -306,7 +297,6 @@ func parseSegment(segment string) (string, *int) {
 	if err != nil {
 		return name, nil
 	}
-
 	return name, &n
 }
 
