@@ -89,8 +89,8 @@ func TestGetArgumentValueAsString(t *testing.T) {
 		expectErr   string
 	}{
 		{name: "nil", arg: nil, expectErr: "argument is nil"},
-		{name: "non-string", arg: &ast.Argument{Name: "rule", Value: &ast.Value{Kind: ast.IntValue, Raw: "5"}}, expectErr: "argument value is not a string"},
-		{name: "empty", arg: &ast.Argument{Name: "rule", Value: &ast.Value{Kind: ast.StringValue, Raw: ""}}, expectErr: "argument value is an empty string"},
+		{name: "non-string", arg: &ast.Argument{Name: "rule", Value: &ast.Value{Kind: ast.IntValue, Raw: "5"}}, expectErr: "argument \"rule\" value is not a string (got int64)"},
+		{name: "empty", arg: &ast.Argument{Name: "rule", Value: &ast.Value{Kind: ast.StringValue, Raw: ""}}, expectErr: "argument \"rule\" is an empty string"},
 		{name: "valid", arg: &ast.Argument{Name: "rule", Value: &ast.Value{Kind: ast.StringValue, Raw: "required"}}, expectValue: "required"},
 	}
 

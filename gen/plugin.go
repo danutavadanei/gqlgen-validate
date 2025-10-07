@@ -183,77 +183,65 @@ func (p *Plugin) GenerateCode(cfg *codegen.Data) error {
 }
 
 func getArgumentValueAsString(arg *ast.Argument) (string, error) {
-	var (
-		v  string
-		ok bool
-	)
-
 	if arg == nil {
 		return "", errors.New("argument is nil")
 	}
 
-	if k, err := arg.Value.Value(nil); err == nil {
-		if v, ok = k.(string); !ok {
-			return "", errors.New("argument value is not a string")
+	if arg.Value != nil && arg.Value.Kind == ast.StringValue {
+		if arg.Value.Raw == "" {
+			return "", fmt.Errorf("argument %q is an empty string", arg.Name)
 		}
+		return arg.Value.Raw, nil
 	}
 
-	if v == "" {
-		return "", errors.New("argument value is an empty string")
+	v, err := arg.Value.Value(nil)
+	if err != nil {
+		return "", fmt.Errorf("argument %q: %w", arg.Name, err)
 	}
 
-	return v, nil
+	s, ok := v.(string)
+	if !ok {
+		return "", fmt.Errorf("argument %q value is not a string (got %T)", arg.Name, v)
+	}
+	if s == "" {
+		return "", fmt.Errorf("argument %q is an empty string", arg.Name)
+	}
+
+	return s, nil
 }
 
 func newGoTagDirective(key, value string) *ast.Directive {
 	return &ast.Directive{
-		Name: "goTag",
+		Name: goTagDirectiveName,
 		Arguments: ast.ArgumentList{
-			&ast.Argument{
-				Name: "key",
-				Value: &ast.Value{
-					Raw:  key,
-					Kind: ast.StringValue,
-				},
-			},
-			&ast.Argument{
-				Name: "value",
-				Value: &ast.Value{
-					Raw:  value,
-					Kind: ast.StringValue,
-				},
-			},
+			&ast.Argument{Name: "key", Value: &ast.Value{Raw: key, Kind: ast.StringValue}},
+			&ast.Argument{Name: "value", Value: &ast.Value{Raw: value, Kind: ast.StringValue}},
 		},
 	}
 }
 
 func toGoRuleParams(rule string) string {
+	i, n := 0, len(rule)
 	var out strings.Builder
-	i := 0
-	n := len(rule)
+	out.Grow(n)
 
 	for i < n {
 		start := i
 		for i < n && rule[i] != ',' && rule[i] != '|' {
 			i++
 		}
-
 		segment := strings.TrimSpace(rule[start:i])
 		if segment != "" {
-			if eq := strings.IndexByte(segment, '='); eq >= 0 {
-				name := segment[:eq]
-				params := segment[eq+1:]
-				segment = name + "=" + transformRuleParams(name, params)
+			if name, rest, ok := strings.Cut(segment, "="); ok {
+				segment = name + "=" + transformRuleParams(name, rest)
 			}
 			out.WriteString(segment)
 		}
-
 		if i < n {
 			out.WriteByte(rule[i])
 			i++
 		}
 	}
-
 	return out.String()
 }
 
@@ -274,8 +262,8 @@ func transformRuleParams(name, params string) string {
 
 func toGoBySeparator(value, separator string) string {
 	segments := strings.Split(value, separator)
-	for i, segment := range segments {
-		segments[i] = toGo(segment)
+	for i := range segments {
+		segments[i] = toGo(segments[i])
 	}
 	return strings.Join(segments, separator)
 }

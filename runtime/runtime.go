@@ -89,6 +89,7 @@ func (r *runtime) validate(ctx context.Context, root any) error {
 					"code":  "BAD_USER_INPUT",
 					"field": ve.Field(),
 					"rule":  ve.Tag(),
+					"param": ve.Param(),
 				},
 			}
 
@@ -105,7 +106,7 @@ func (r *runtime) validate(ctx context.Context, root any) error {
 
 func (r *runtime) getPathContext(ctx context.Context, root any, fieldError validator.FieldError) context.Context {
 	segments := strings.Split(fieldError.Namespace(), ".")
-	if len(segments) == 0 {
+	if len(segments) <= 1 {
 		return ctx
 	}
 	segments = segments[1:]
@@ -117,11 +118,11 @@ func (r *runtime) getPathContext(ctx context.Context, root any, fieldError valid
 	for _, raw := range segments {
 		name, idx := parseSegment(raw)
 
-		json, nextT, nextV := r.resolve(rt, rv, name)
-		if json == "" {
-			json = name
+		jsonName, nextT, nextV := r.resolve(rt, rv, name)
+		if jsonName == "" {
+			jsonName = name
 		}
-		pctx = graphql.WithPathContext(pctx, graphql.NewPathWithField(json))
+		pctx = graphql.WithPathContext(pctx, graphql.NewPathWithField(jsonName))
 
 		rt, rv = nextT, nextV
 		if idx != nil {
@@ -139,17 +140,20 @@ func (r *runtime) resolve(typ reflect.Type, value reflect.Value, goName string) 
 	}
 
 	f := r.fieldFor(typ, goName)
-	json := f.jsonName
+	if f == nil {
+		return goName, nil, reflect.Value{}
+	}
+
+	jsonName := f.jsonName
 	nextTyp := f.typ
 
 	value = derefValue(value)
 	if value.IsValid() && value.Kind() == reflect.Struct {
 		if fv := value.FieldByName(goName); fv.IsValid() {
-			return json, nextTyp, fv
+			return jsonName, nextTyp, fv
 		}
 	}
-
-	return json, nextTyp, reflect.Value{}
+	return jsonName, nextTyp, reflect.Value{}
 }
 
 func (r *runtime) fieldFor(typ reflect.Type, goName string) *field {
@@ -166,22 +170,22 @@ func (r *runtime) fieldFor(typ reflect.Type, goName string) *field {
 			continue
 		}
 
-		json := f.Tag.Get("json")
-		json = strings.Split(json, ",")[0]
-		if json == "" || json == "-" {
-			json = f.Name
+		jsonName := f.Tag.Get("json")
+		jsonName = strings.Split(jsonName, ",")[0]
+		if jsonName == "" || jsonName == "-" {
+			jsonName = f.Name
 		}
 
 		fld := &field{
 			goName:   f.Name,
-			jsonName: json,
+			jsonName: jsonName,
 			message:  f.Tag.Get("message"),
 			typ:      f.Type,
 		}
 
 		out[f.Name] = fld
-		if json != f.Name {
-			out[json] = fld
+		if jsonName != f.Name {
+			out[jsonName] = fld
 		}
 	}
 
@@ -209,7 +213,6 @@ func (r *runtime) lookupMessage(root any, fieldError validator.FieldError) strin
 		return ""
 	}
 
-	// Direct field override.
 	f := r.fieldFor(rt, fieldError.StructField())
 	if f != nil && f.message != "" {
 		return f.message
@@ -253,8 +256,7 @@ func isValidatable(value any) bool {
 		return false
 	}
 
-	rv := reflect.ValueOf(value)
-	if rv.Kind() == reflect.Ptr && rv.IsNil() {
+	if rv := reflect.ValueOf(value); rv.Kind() == reflect.Ptr && rv.IsNil() {
 		return false
 	}
 
@@ -285,27 +287,21 @@ func parseSegment(segment string) (string, *int) {
 		return "", nil
 	}
 
-	idx := strings.Index(segment, "[")
-	if idx == -1 {
+	name, rest, ok := strings.Cut(segment, "[")
+	if !ok {
 		return segment, nil
 	}
 
-	name := segment[:idx]
-	end := strings.Index(segment[idx:], "]")
-	if end == -1 {
+	rest = strings.TrimSuffix(rest, "]")
+	if rest == "" {
 		return name, nil
 	}
 
-	value := segment[idx+1 : idx+end]
-	if value == "" {
-		return name, nil
+	if n, err := strconv.Atoi(rest); err == nil {
+		return name, &n
 	}
 
-	n, err := strconv.Atoi(value)
-	if err != nil {
-		return name, nil
-	}
-	return name, &n
+	return name, nil
 }
 
 func derefValue(v reflect.Value) reflect.Value {
@@ -320,9 +316,6 @@ func derefValue(v reflect.Value) reflect.Value {
 
 func derefType(t reflect.Type) reflect.Type {
 	for t != nil && t.Kind() == reflect.Pointer {
-		if t.Elem() == nil {
-			return t
-		}
 		t = t.Elem()
 	}
 	return t
