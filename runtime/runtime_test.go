@@ -165,7 +165,7 @@ func TestMiddleware(t *testing.T) {
 	})
 }
 
-func TestFieldMessage(t *testing.T) {
+func TestLookupMessage(t *testing.T) {
 	type child struct {
 		Name string `json:"name" validate:"required" message:"child message"`
 	}
@@ -257,12 +257,14 @@ func TestFieldMessage(t *testing.T) {
 		{"non struct collection element", root, get(".Value[0]"), ""},
 		{"empty namespace", root, blanks, ""},
 		{"empty segment", root, overrideNamespace(direct, "parent..Direct"), "direct message"},
-		{"no segments after root", root, overrideNamespace(direct, "parent"), ""},
+		{"no segments after root", root, overrideNamespace(direct, "parent"), "direct message"},
 	}
+
+	r := newRuntime()
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := fieldMessage(tc.root, tc.err)
+			got := r.lookupMessage(tc.root, tc.err)
 			assert.Equal(t, tc.want, got)
 		})
 	}
@@ -285,12 +287,13 @@ func (n namespaceOverride) StructNamespace() string {
 	return n.FieldError.StructNamespace()
 }
 
-func TestFieldTagMessage(t *testing.T) {
+func TestFieldMessageTag(t *testing.T) {
 	typ := reflect.TypeOf(struct {
 		First string `message:"first"`
 		Last  string
 	}{})
 
-	assert.Equal(t, "first", fieldTagMessage(typ, "First"))
-	assert.Equal(t, "", fieldTagMessage(typ, "Missing"))
+	r := newRuntime()
+	assert.Equal(t, "first", r.fieldFor(typ, "First").message)
+	assert.Nil(t, r.fieldFor(typ, "Missing"))
 }

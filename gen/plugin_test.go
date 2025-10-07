@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/99designs/gqlgen/codegen"
@@ -16,7 +17,8 @@ import (
 	"github.com/vektah/gqlparser/v2/ast"
 )
 
-const pluginSchema = `
+const (
+	schemaWithMessages = `
     directive @validate(rule: String!, message: String) on INPUT_FIELD_DEFINITION | ARGUMENT_DEFINITION
 
     input SimpleInput {
@@ -38,7 +40,18 @@ const pluginSchema = `
     }
 `
 
-func TestNormalizeDependableRule(t *testing.T) {
+	schemaWithoutMessage = `
+    directive @validate(rule: String!, message: String) on INPUT_FIELD_DEFINITION
+
+    input MinimalInput {
+        field: String @validate(rule: "required")
+    }
+`
+)
+
+func TestToGoRuleParams(t *testing.T) {
+	t.Parallel()
+
 	cases := []struct {
 		name   string
 		input  string
@@ -60,12 +73,15 @@ func TestNormalizeDependableRule(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			assert.Equal(t, tc.expect, toGoRuleParams(tc.input))
 		})
 	}
 }
 
 func TestGetArgumentValueAsString(t *testing.T) {
+	t.Parallel()
+
 	cases := []struct {
 		name        string
 		arg         *ast.Argument
@@ -80,6 +96,7 @@ func TestGetArgumentValueAsString(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			value, err := getArgumentValueAsString(tc.arg)
 			if tc.expectErr != "" {
 				require.Error(t, err)
@@ -93,45 +110,41 @@ func TestGetArgumentValueAsString(t *testing.T) {
 	}
 }
 
-func TestMutateSchemaInjectsGoTagDirectives(t *testing.T) {
-	schema := mustLoadSchema(t, pluginSchema)
-	p := New().(*Plugin)
-	err := p.MutateSchema(schema)
-	require.NoError(t, err)
+func TestPluginMutateSchema(t *testing.T) {
+	t.Run("injects goTags and tracks marker types", func(t *testing.T) {
+		schema := mustLoadSchema(t, schemaWithMessages)
+		plugin := New().(*Plugin)
 
-	assert.NotNil(t, schema.Directives[goTagDirectiveName])
+		require.NoError(t, plugin.MutateSchema(schema))
 
-	field := schema.Types["SimpleInput"].Fields.ForName("name")
-	require.NotNil(t, field)
+		field := schema.Types["SimpleInput"].Fields.ForName("name")
+		require.NotNil(t, field)
 
-	var validateTag, messageTag *ast.Directive
-	for _, directive := range field.Directives {
-		if directive.Name != goTagDirectiveName {
-			continue
-		}
-		key := directive.Arguments.ForName("key")
-		value := directive.Arguments.ForName("value")
-		require.NotNil(t, key)
-		require.NotNil(t, value)
-		switch key.Value.Raw {
-		case "validate":
-			validateTag = directive
-		case "message":
-			messageTag = directive
-		}
-	}
+		assert.Equal(t, "min=2,required", goTagValue(t, field, "validate"))
+		assert.Equal(t, "name is required", goTagValue(t, field, "message"))
 
-	require.NotNil(t, validateTag, "expected validate goTag directive")
-	assert.Equal(t, "min=2,required", validateTag.Arguments.ForName("value").Value.Raw)
-	require.NotNil(t, messageTag, "expected message goTag directive")
-	assert.Equal(t, "name is required", messageTag.Arguments.ForName("value").Value.Raw)
+		assert.ElementsMatch(t, []string{"OwnershipInput", "ProxyInput", "SimpleInput"}, plugin.markerTypes.values())
+	})
 
-	for _, typeName := range []string{"SimpleInput", "OwnershipInput", "ProxyInput"} {
-		assert.Contains(t, p.markerTypes, typeName)
-	}
+	t.Run("skips message directive when argument absent", func(t *testing.T) {
+		schema := mustLoadSchema(t, schemaWithoutMessage)
+		plugin := New().(*Plugin)
+
+		require.NoError(t, plugin.MutateSchema(schema))
+
+		field := schema.Types["MinimalInput"].Fields.ForName("field")
+		require.NotNil(t, field)
+
+		assert.Equal(t, "required", goTagValue(t, field, "validate"))
+		assert.False(t, hasGoTag(field, "message"))
+
+		assert.ElementsMatch(t, []string{"MinimalInput"}, plugin.markerTypes.values())
+	})
 }
 
-func TestMutateSchemaErrors(t *testing.T) {
+func TestPluginMutateSchemaErrors(t *testing.T) {
+	t.Parallel()
+
 	cases := []struct {
 		name   string
 		schema string
@@ -140,40 +153,41 @@ func TestMutateSchemaErrors(t *testing.T) {
 		{
 			name: "directive on type",
 			schema: `
-				directive @validate(rule: String!) on INPUT_FIELD_DEFINITION | ARGUMENT_DEFINITION | INPUT_OBJECT
+                directive @validate(rule: String!) on INPUT_FIELD_DEFINITION | ARGUMENT_DEFINITION | INPUT_OBJECT
 
-				input BadInput @validate(rule: "required") {
-					field: String
-				}
-			`,
+                input BadInput @validate(rule: "required") {
+                    field: String
+                }
+            `,
 			err: "@validate may only be applied to input fields (found on BadInput)",
 		},
 		{
 			name: "empty rule",
 			schema: `
-				directive @validate(rule: String!, message: String) on INPUT_FIELD_DEFINITION
+                directive @validate(rule: String!, message: String) on INPUT_FIELD_DEFINITION
 
-				input BadInput {
-					name: String @validate(rule: "", message: "oops")
-				}
-			`,
+                input BadInput {
+                    name: String @validate(rule: "", message: "oops")
+                }
+            `,
 			err: "@validate on BadInput.name requires a rule",
 		},
 		{
 			name: "duplicate directive",
 			schema: `
-				directive @validate(rule: String!) on INPUT_FIELD_DEFINITION
+                directive @validate(rule: String!) on INPUT_FIELD_DEFINITION
 
-				input BadInput {
-					name: String @validate(rule: "required") @validate(rule: "min=2")
-				}
-			`,
+                input BadInput {
+                    name: String @validate(rule: "required") @validate(rule: "min=2")
+                }
+            `,
 			err: "@validate may only be applied once per field (BadInput.name)",
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			schema, err := gqlparser.LoadSchema(&ast.Source{Name: "schema.graphql", Input: tc.schema})
 			require.NoError(t, err)
 
@@ -184,68 +198,118 @@ func TestMutateSchemaErrors(t *testing.T) {
 	}
 }
 
-func TestMutateConfigAddsDirectiveDefinitions(t *testing.T) {
-	cfg := &config.Config{Directives: map[string]config.DirectiveConfig{}}
-	err := New().(*Plugin).MutateConfig(cfg)
-	require.NoError(t, err)
+func TestPluginMutateConfig(t *testing.T) {
+	t.Run("adds directive definitions", func(t *testing.T) {
+		cfg := &config.Config{Directives: map[string]config.DirectiveConfig{}}
 
-	assert.True(t, cfg.Directives[goTagDirectiveName].SkipRuntime)
-	assert.True(t, cfg.Directives[directiveName].SkipRuntime)
+		err := New().(*Plugin).MutateConfig(cfg)
+		require.NoError(t, err)
+
+		assert.True(t, cfg.Directives[goTagDirectiveName].SkipRuntime)
+		assert.True(t, cfg.Directives[directiveName].SkipRuntime)
+	})
+
+	t.Run("respects existing definitions", func(t *testing.T) {
+		cfg := &config.Config{Directives: map[string]config.DirectiveConfig{
+			goTagDirectiveName: {SkipRuntime: false},
+			directiveName:      {SkipRuntime: false},
+		}}
+
+		err := New().(*Plugin).MutateConfig(cfg)
+		require.NoError(t, err)
+
+		assert.False(t, cfg.Directives[goTagDirectiveName].SkipRuntime)
+		assert.False(t, cfg.Directives[directiveName].SkipRuntime)
+	})
 }
 
-func TestMutateConfigRespectsExistingDefinitions(t *testing.T) {
-	cfg := &config.Config{Directives: map[string]config.DirectiveConfig{
-		goTagDirectiveName: {SkipRuntime: false},
-		directiveName:      {SkipRuntime: false},
-	}}
+func TestPluginGenerateCode(t *testing.T) {
+	t.Run("removes stale file when no marker types", func(t *testing.T) {
+		plugin := &Plugin{markerTypes: make(set)}
+		tmpDir := t.TempDir()
+		modelPath := filepath.Join(tmpDir, "models_gen.go")
+		createConfigPackage(t, modelPath)
 
-	err := New().(*Plugin).MutateConfig(cfg)
-	require.NoError(t, err)
+		filename := filepath.Join(tmpDir, "validatable_gen.go")
+		require.NoError(t, os.WriteFile(filename, []byte("stale"), 0o600))
 
-	assert.False(t, cfg.Directives[goTagDirectiveName].SkipRuntime)
-	assert.False(t, cfg.Directives[directiveName].SkipRuntime)
+		data := &codegen.Data{Config: newCodegenConfig(t, modelPath)}
+
+		require.NoError(t, plugin.GenerateCode(data))
+		_, err := os.Stat(filename)
+		assert.True(t, errors.Is(err, fs.ErrNotExist))
+	})
+
+	t.Run("writes sorted marker functions", func(t *testing.T) {
+		plugin := &Plugin{markerTypes: set{
+			"ProxyInput":   {},
+			"AlphaInput":   {},
+			"MonitorInput": {},
+		}}
+
+		tmpDir := t.TempDir()
+		modelPath := filepath.Join(tmpDir, "models_gen.go")
+		createConfigPackage(t, modelPath)
+
+		data := &codegen.Data{Config: newCodegenConfig(t, modelPath)}
+
+		require.NoError(t, plugin.GenerateCode(data))
+
+		content, err := os.ReadFile(filepath.Join(tmpDir, "validatable_gen.go"))
+		require.NoError(t, err)
+
+		output := string(content)
+		alphaIdx := strings.Index(output, "func (AlphaInput) IsValidatable()")
+		monitorIdx := strings.Index(output, "func (MonitorInput) IsValidatable()")
+		proxyIdx := strings.Index(output, "func (ProxyInput) IsValidatable()")
+
+		require.NotEqual(t, -1, alphaIdx)
+		require.NotEqual(t, -1, monitorIdx)
+		require.NotEqual(t, -1, proxyIdx)
+		assert.Less(t, alphaIdx, monitorIdx)
+		assert.Less(t, monitorIdx, proxyIdx)
+	})
 }
 
-func TestGenerateCodeRemovesStaleFile(t *testing.T) {
-	p := &Plugin{markerTypes: make(set)}
-	tmpDir := t.TempDir()
-	modelPath := filepath.Join(tmpDir, "models_gen.go")
-	createConfigPackage(t, modelPath)
+func goTagValue(t *testing.T, field *ast.FieldDefinition, key string) string {
+	t.Helper()
 
-	filename := filepath.Join(tmpDir, "validatable_gen.go")
-	require.NoError(t, os.WriteFile(filename, []byte("stale"), 0o600))
+	for _, directive := range field.Directives {
+		if directive.Name != goTagDirectiveName {
+			continue
+		}
 
-	data := &codegen.Data{Config: newCodegenConfig(t, modelPath)}
+		keyArg := directive.Arguments.ForName("key")
+		valueArg := directive.Arguments.ForName("value")
+		require.NotNil(t, keyArg)
+		require.NotNil(t, valueArg)
 
-	require.NoError(t, p.GenerateCode(data))
-	_, err := os.Stat(filename)
-	assert.True(t, errors.Is(err, fs.ErrNotExist))
+		if keyArg.Value.Raw == key {
+			return valueArg.Value.Raw
+		}
+	}
+
+	t.Fatalf("goTag %q not found", key)
+	return ""
 }
 
-func TestGenerateCodeWritesMarkers(t *testing.T) {
-	p := &Plugin{markerTypes: set{
-		"OwnershipInput": {},
-		"ProxyInput":     {},
-	}}
+func hasGoTag(field *ast.FieldDefinition, key string) bool {
+	for _, directive := range field.Directives {
+		if directive.Name != goTagDirectiveName {
+			continue
+		}
 
-	tmpDir := t.TempDir()
-	modelPath := filepath.Join(tmpDir, "models_gen.go")
-	createConfigPackage(t, modelPath)
-
-	data := &codegen.Data{Config: newCodegenConfig(t, modelPath)}
-
-	require.NoError(t, p.GenerateCode(data))
-
-	content, err := os.ReadFile(filepath.Join(tmpDir, "validatable_gen.go"))
-	require.NoError(t, err)
-
-	output := string(content)
-	assert.Contains(t, output, "func (OwnershipInput) IsValidatable() {}")
-	assert.Contains(t, output, "func (ProxyInput) IsValidatable() {}")
+		keyArg := directive.Arguments.ForName("key")
+		if keyArg != nil && keyArg.Value.Raw == key {
+			return true
+		}
+	}
+	return false
 }
 
 func mustLoadSchema(t *testing.T, input string) *ast.Schema {
 	t.Helper()
+
 	schema, err := gqlparser.LoadSchema(&ast.Source{Name: "schema.graphql", Input: input})
 	require.NoError(t, err)
 	return schema
@@ -253,12 +317,14 @@ func mustLoadSchema(t *testing.T, input string) *ast.Schema {
 
 func createConfigPackage(t *testing.T, modelPath string) {
 	t.Helper()
+
 	dir := filepath.Dir(modelPath)
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 }
 
 func newCodegenConfig(t *testing.T, modelPath string) *config.Config {
 	t.Helper()
+
 	cfg := &config.Config{
 		Model: config.PackageConfig{
 			Filename: modelPath,
@@ -273,9 +339,11 @@ func newCodegenConfig(t *testing.T, modelPath string) *config.Config {
 
 func ensurePackagesInitialized(t *testing.T, cfg *config.Config) {
 	t.Helper()
+
 	value := reflect.ValueOf(cfg).Elem().FieldByName("Packages")
 	if !value.IsNil() {
 		return
 	}
+
 	value.Set(reflect.New(value.Type().Elem()))
 }

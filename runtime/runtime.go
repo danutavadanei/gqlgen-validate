@@ -159,7 +159,7 @@ func (r *runtime) fieldFor(typ reflect.Type, goName string) *field {
 		return cached.(map[string]*field)[goName]
 	}
 
-	out := make(map[string]*field, typ.NumField())
+	out := make(map[string]*field)
 	for i := 0; i < typ.NumField(); i++ {
 		f := typ.Field(i)
 		if f.PkgPath != "" {
@@ -172,11 +172,16 @@ func (r *runtime) fieldFor(typ reflect.Type, goName string) *field {
 			json = f.Name
 		}
 
-		out[f.Name] = &field{
+		fld := &field{
 			goName:   f.Name,
 			jsonName: json,
 			message:  f.Tag.Get("message"),
 			typ:      f.Type,
+		}
+
+		out[f.Name] = fld
+		if json != f.Name {
+			out[json] = fld
 		}
 	}
 
@@ -189,9 +194,9 @@ func (r *runtime) messageFor(root any, fieldError validator.FieldError) string {
 		return msg
 	}
 	if p := fieldError.Param(); p != "" {
-		return fmt.Sprintf("%s failed '%s' (param: %s)", fieldError.Field(), fieldError.Tag(), p)
+		return fmt.Sprintf("%s failed on the '%s' rule (param: %s)", fieldError.Field(), fieldError.Tag(), p)
 	}
-	return fmt.Sprintf("%s failed '%s'", fieldError.Field(), fieldError.Tag())
+	return fmt.Sprintf("%s failed on the '%s' rule", fieldError.Field(), fieldError.Tag())
 }
 
 func (r *runtime) lookupMessage(root any, fieldError validator.FieldError) string {
@@ -206,7 +211,7 @@ func (r *runtime) lookupMessage(root any, fieldError validator.FieldError) strin
 
 	// Direct field override.
 	f := r.fieldFor(rt, fieldError.StructField())
-	if f.message != "" {
+	if f != nil && f.message != "" {
 		return f.message
 	}
 
@@ -224,6 +229,9 @@ func (r *runtime) lookupMessage(root any, fieldError validator.FieldError) strin
 		}
 
 		f = r.fieldFor(curr, name)
+		if f == nil {
+			return ""
+		}
 		if i == len(segments)-1 {
 			return f.message
 		}

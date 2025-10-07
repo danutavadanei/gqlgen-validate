@@ -46,12 +46,12 @@ var (
 		"fieldcontains": {}, "fieldexcludes": {}, "containsfield": {}, "excludesfield": {},
 	}
 
-	multiFieldListRules = set{
+	multiFieldRules = set{
 		"required_with": {}, "required_with_all": {}, "required_without": {}, "required_without_all": {},
 		"excluded_with": {}, "excluded_with_all": {}, "excluded_without": {}, "excluded_without_all": {},
 	}
 
-	pairedFieldValueRules = set{
+	pairedFieldRules = set{
 		"required_if": {}, "required_unless": {}, "excluded_if": {}, "excluded_unless": {},
 		"skip_unless": {},
 	}
@@ -59,6 +59,7 @@ var (
 
 var toGo = templates.ToGo
 
+// set is a simple string set.
 type set map[string]struct{}
 
 func (s set) add(name string) {
@@ -74,21 +75,24 @@ func (s set) values() []string {
 	return slices.Collect(maps.Keys(s))
 }
 
+// Plugin is a gqlgen plugin that wires validation rules into generated models.
 type Plugin struct {
 	markerTypes set
 }
 
+// New constructs the plugin instance.
 func New() plugin.Plugin {
 	return &Plugin{
 		markerTypes: make(set),
 	}
 }
 
-func (p *Plugin) Name() string {
-	return "gqlgen-validate"
-}
+// Name implements plugin.Plugin.
+func (p *Plugin) Name() string { return "gqlgen-validate" }
 
+// MutateSchema ensures directives exist and rewrites fields with validation metadata.
 func (p *Plugin) MutateSchema(schema *ast.Schema) error {
+	// Ensure goTag directive exists (used to inject struct tags).
 	if _, ok := schema.Directives[goTagDirectiveName]; !ok {
 		schema.Directives[goTagDirectiveName] = &ast.DirectiveDefinition{
 			Name: goTagDirectiveName,
@@ -108,11 +112,9 @@ func (p *Plugin) MutateSchema(schema *ast.Schema) error {
 
 		for _, field := range def.Fields {
 			validateDirectives := field.Directives.ForNames(directiveName)
-
 			if len(validateDirectives) == 0 {
 				continue
 			}
-
 			if len(validateDirectives) > 1 {
 				return fmt.Errorf("@%s may only be applied once per field (%s.%s)", directiveName, def.Name, field.Name)
 			}
@@ -120,12 +122,8 @@ func (p *Plugin) MutateSchema(schema *ast.Schema) error {
 			validate := validateDirectives[0]
 			hasValidateDirectives = true
 
-			var (
-				rule string
-				err  error
-			)
-
-			if rule, err = getArgumentValueAsString(validate.Arguments.ForName("rule")); err != nil {
+			rule, err := getArgumentValueAsString(validate.Arguments.ForName("rule"))
+			if err != nil {
 				return fmt.Errorf("@%s on %s.%s requires a rule", directiveName, def.Name, field.Name)
 			}
 
@@ -144,22 +142,22 @@ func (p *Plugin) MutateSchema(schema *ast.Schema) error {
 	return nil
 }
 
+// MutateConfig registers the directives so gqlgen does not expect runtime handlers.
 func (p *Plugin) MutateConfig(cfg *config.Config) error {
 	if _, ok := cfg.Directives[goTagDirectiveName]; !ok {
 		cfg.Directives[goTagDirectiveName] = config.DirectiveConfig{
 			SkipRuntime: true,
 		}
 	}
-
 	if _, ok := cfg.Directives[directiveName]; !ok {
 		cfg.Directives[directiveName] = config.DirectiveConfig{
 			SkipRuntime: true,
 		}
 	}
-
 	return nil
 }
 
+// GenerateCode emits a small file that marks the validated input types.
 func (p *Plugin) GenerateCode(cfg *codegen.Data) error {
 	types := p.markerTypes.values()
 	sort.Strings(types)
@@ -167,7 +165,6 @@ func (p *Plugin) GenerateCode(cfg *codegen.Data) error {
 	filename := filepath.Join(filepath.Dir(cfg.Config.Model.Filename), "validatable_gen.go")
 	if len(types) == 0 {
 		_ = os.Remove(filename)
-
 		return nil
 	}
 
@@ -266,9 +263,9 @@ func transformRuleParams(name, params string) string {
 		return toGo(params)
 	case crossFieldRelativeRules.contains(name):
 		return toGoBySeparator(params, ".")
-	case multiFieldListRules.contains(name):
+	case multiFieldRules.contains(name):
 		return toGoBySeparator(params, " ")
-	case pairedFieldValueRules.contains(name):
+	case pairedFieldRules.contains(name):
 		return toGoPairs(params)
 	default:
 		return params
@@ -280,7 +277,6 @@ func toGoBySeparator(value, separator string) string {
 	for i, segment := range segments {
 		segments[i] = toGo(segment)
 	}
-
 	return strings.Join(segments, separator)
 }
 
@@ -293,6 +289,5 @@ func toGoPairs(value string) string {
 	for i := 0; i < len(fields); i += 2 {
 		fields[i] = toGo(fields[i])
 	}
-
 	return strings.Join(fields, " ")
 }
