@@ -17,12 +17,12 @@ type runtime struct {
 	validator *validator.Validate
 }
 
-// Validatable marks gqlgen structs that carry validation rules.
-type Validatable interface {
+// validatable marks gqlgen structs that carry validation rules.
+type validatable interface {
 	IsValidatable()
 }
 
-// Middleware validates all resolver arguments that satisfy the Validatable interface
+// Middleware validates all resolver arguments that satisfy the validatable interface
 // after gqlgen unmarshalling.
 func Middleware() func(ctx context.Context, next graphql.Resolver) (any, error) {
 	r := newRuntime()
@@ -91,7 +91,7 @@ func (d *runtime) validate(ctx context.Context, value any) error {
 				Extensions: map[string]interface{}{
 					"code":  "BAD_USER_INPUT",
 					"field": ve.Field(),
-					"tag":   ve.Tag(),
+					"rule":  ve.Tag(),
 				},
 			}
 
@@ -112,7 +112,7 @@ func isValidatable(value any) bool {
 		return false
 	}
 
-	if _, ok := value.(Validatable); !ok {
+	if _, ok := value.(validatable); !ok {
 		return false
 	}
 
@@ -197,10 +197,6 @@ func fieldMessage(root any, fe validator.FieldError) string {
 }
 
 func fieldTagMessage(rt reflect.Type, fieldName string) string {
-	if fieldName == "" {
-		return ""
-	}
-
 	field, ok := rt.FieldByName(fieldName)
 	if !ok {
 		return ""
@@ -220,17 +216,6 @@ func trimCollectionIndex(segment string) string {
 	}
 
 	return segment[:idx]
-}
-
-func derefType(t reflect.Type) reflect.Type {
-	for t != nil && t.Kind() == reflect.Pointer {
-		if t.Elem() == nil {
-			return t
-		}
-		t = t.Elem()
-	}
-
-	return t
 }
 
 func extendGraphQLPath(ctx context.Context, root any, target []string) context.Context {
@@ -261,7 +246,7 @@ func extendGraphQLPath(ctx context.Context, root any, target []string) context.C
 }
 
 func resolvePathSegment(typ reflect.Type, val reflect.Value, name string) (string, reflect.Type, reflect.Value) {
-	baseName := lowerFirst(name)
+	baseName := name
 	if typ == nil {
 		return baseName, nil, reflect.Value{}
 	}
@@ -278,7 +263,7 @@ func resolvePathSegment(typ reflect.Type, val reflect.Value, name string) (strin
 
 	jsonName := jsonFieldName(field)
 	if jsonName == "" {
-		jsonName = lowerFirst(field.Name)
+		jsonName = field.Name
 	}
 
 	var nextVal reflect.Value
@@ -361,13 +346,6 @@ func jsonFieldName(field reflect.StructField) string {
 	return name
 }
 
-func lowerFirst(s string) string {
-	if s == "" {
-		return ""
-	}
-	return strings.ToLower(s[:1]) + s[1:]
-}
-
 func derefValue(v reflect.Value) reflect.Value {
 	for v.IsValid() && v.Kind() == reflect.Pointer {
 		if v.IsNil() {
@@ -376,4 +354,14 @@ func derefValue(v reflect.Value) reflect.Value {
 		v = v.Elem()
 	}
 	return v
+}
+
+func derefType(t reflect.Type) reflect.Type {
+	for t != nil && t.Kind() == reflect.Pointer {
+		if t.Elem() == nil {
+			return t
+		}
+		t = t.Elem()
+	}
+	return t
 }

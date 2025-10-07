@@ -138,7 +138,7 @@ func TestIsValidatable(t *testing.T) {
 	}
 }
 
-func TestDirectiveMiddleware(t *testing.T) {
+func TestMiddleware(t *testing.T) {
 	mw := Middleware()
 
 	ctx := graphql.WithPathContext(context.Background(), graphql.NewPathWithField("input"))

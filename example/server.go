@@ -23,5 +23,5 @@ func main() {
 	http.Handle("/query", srv)
 
 	log.Println("listening on http://localhost:8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	log.Fatal(http.ListenAndServe(":8081", nil))
 }

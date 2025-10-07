@@ -48,7 +48,7 @@ type AccountMetadata struct {
 ## Integrating with gqlgen
 
 To use a plugin during code generation, you need to create a new entry point.
-Please refer to the [example generator](/example/cmd/gqlgen/main.go) for 
+Please refer to the [example generator](/example/cmd/gqlgen/main.go) for implementation details.
 
 Running `go run cmd/gqlgen` will now inject the  appropriate `validate:"..."`
 tags wherever your schema uses `@validate`.
@@ -79,7 +79,7 @@ func main() {
 
 The field middleware ensures every resolver argument is validated before your
 business logic runs. Custom `message` tags added by the plugin automatically
-override the default validator error text, and the directive handler returns
+override the default validator error text. The runtime middleware returns
 GraphQL errors that point at the offending fields (e.g. `input.bic`).
 
 ## Example project
