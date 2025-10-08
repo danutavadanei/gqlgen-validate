@@ -8,6 +8,9 @@ import (
 	"testing"
 
 	"github.com/99designs/gqlgen/graphql"
+	enlocale "github.com/go-playground/locales/en"
+	rolocale "github.com/go-playground/locales/ro"
+	ut "github.com/go-playground/universal-translator"
 	"github.com/go-playground/validator/v10"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -49,6 +52,14 @@ type simplePointer struct {
 }
 
 func (simplePointer) IsValidatable() {}
+
+type translationInput struct {
+	Name string `json:"name" validate:"required"`
+}
+
+func (translationInput) IsValidatable() {}
+
+type langCtxKey struct{}
 
 func TestValidate(t *testing.T) {
 	tests := []struct {
@@ -97,7 +108,7 @@ func TestValidate(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			d := newRuntime()
+			d := newTestRuntime(t)
 			ctx := graphql.WithPathContext(context.Background(), graphql.NewPathWithField("input"))
 
 			err := d.validate(ctx, tc.value)
@@ -115,6 +126,48 @@ func TestValidate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateWithTranslations(t *testing.T) {
+	opt := translationOption(t)
+	r := newTestRuntime(t, opt)
+
+	baseCtx := graphql.WithPathContext(context.Background(), graphql.NewPathWithField("input"))
+
+	t.Run("uses requested translator", func(t *testing.T) {
+		ctx := context.WithValue(baseCtx, langCtxKey{}, "ro")
+
+		err := r.validate(ctx, &translationInput{})
+		require.Error(t, err)
+
+		var gqlErr *gqlerror.Error
+		require.True(t, errors.As(err, &gqlErr))
+		assert.Equal(t, "name trebuie completat", gqlErr.Message)
+		assert.Equal(t, "input.name", gqlErr.Path.String())
+	})
+
+	t.Run("falls back to default translator", func(t *testing.T) {
+		ctx := context.WithValue(baseCtx, langCtxKey{}, "fr")
+
+		err := r.validate(ctx, &translationInput{})
+		require.Error(t, err)
+
+		var gqlErr *gqlerror.Error
+		require.True(t, errors.As(err, &gqlErr))
+		assert.Equal(t, "name is required (en)", gqlErr.Message)
+		assert.Equal(t, "input.name", gqlErr.Path.String())
+	})
+
+	t.Run("directive message overrides translations", func(t *testing.T) {
+		ctx := context.WithValue(baseCtx, langCtxKey{}, "ro")
+
+		err := r.validate(ctx, &simpleInput{})
+		require.Error(t, err)
+
+		var gqlErr *gqlerror.Error
+		require.True(t, errors.As(err, &gqlErr))
+		assert.Equal(t, "name must not be empty", gqlErr.Message)
+	})
 }
 
 func TestIsValidatable(t *testing.T) {
@@ -260,7 +313,7 @@ func TestLookupMessage(t *testing.T) {
 		{"no segments after root", root, overrideNamespace(direct, "parent"), "direct message"},
 	}
 
-	r := newRuntime()
+	r := newTestRuntime(t)
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -293,7 +346,88 @@ func TestFieldMessageTag(t *testing.T) {
 		Last  string
 	}{})
 
-	r := newRuntime()
+	r := newTestRuntime(t)
 	assert.Equal(t, "first", r.fieldFor(typ, "First").message)
 	assert.Nil(t, r.fieldFor(typ, "Missing"))
+}
+
+func TestWithTranslationsConfigValidation(t *testing.T) {
+	_, err := newRuntime(WithTranslations(TranslationConfig{}))
+	assert.Error(t, err)
+
+	en := enlocale.New()
+	uni := ut.New(en, en)
+	enTrans, found := uni.GetTranslator(en.Locale())
+	require.True(t, found)
+
+	cfg := TranslationConfig{
+		Registrations: []TranslationRegistration{
+			{Lang: "en", Translator: enTrans},
+		},
+		DefaultLang: "unknown",
+	}
+
+	_, err = newRuntime(WithTranslations(cfg))
+	assert.Error(t, err)
+}
+
+func newTestRuntime(t *testing.T, opts ...Option) *runtime {
+	t.Helper()
+
+	r, err := newRuntime(opts...)
+	require.NoError(t, err)
+	return r
+}
+
+func translationOption(t *testing.T) Option {
+	t.Helper()
+
+	en := enlocale.New()
+	enUni := ut.New(en, en)
+	enTrans, found := enUni.GetTranslator(en.Locale())
+	require.True(t, found)
+
+	ro := rolocale.New()
+	roUni := ut.New(ro, ro)
+	roTrans, found := roUni.GetTranslator(ro.Locale())
+	require.True(t, found)
+
+	return WithTranslations(TranslationConfig{
+		Registrations: []TranslationRegistration{
+			{
+				Lang:       "en",
+				Translator: enTrans,
+				Init:       requiredInit("{0} is required (en)"),
+			},
+			{
+				Lang:       "ro",
+				Translator: roTrans,
+				Init:       requiredInit("{0} trebuie completat"),
+			},
+		},
+		DefaultLang: "en",
+		PickLang: func(ctx context.Context) string {
+			if lang, ok := ctx.Value(langCtxKey{}).(string); ok {
+				return lang
+			}
+			return ""
+		},
+	})
+}
+
+func requiredInit(message string) func(*validator.Validate, ut.Translator) error {
+	return func(v *validator.Validate, trans ut.Translator) error {
+		return v.RegisterTranslation("required", trans,
+			func(ut ut.Translator) error {
+				return ut.Add("required", message, true)
+			},
+			func(ut ut.Translator, fe validator.FieldError) string {
+				translated, err := ut.T("required", fe.Field())
+				if err != nil {
+					return message
+				}
+				return translated
+			},
+		)
+	}
 }

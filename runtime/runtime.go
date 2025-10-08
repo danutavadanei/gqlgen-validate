@@ -10,14 +10,18 @@ import (
 	"sync"
 
 	"github.com/99designs/gqlgen/graphql"
+	ut "github.com/go-playground/universal-translator"
 	"github.com/go-playground/validator/v10"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 )
 
 // Middleware validates all resolver arguments that satisfy the validatable interface
 // after gqlgen unmarshalling.
-func Middleware() func(ctx context.Context, next graphql.Resolver) (any, error) {
-	r := newRuntime()
+func Middleware(opts ...Option) func(ctx context.Context, next graphql.Resolver) (any, error) {
+	r, err := newRuntime(opts...)
+	if err != nil {
+		panic(fmt.Sprintf("runtime middleware configuration failed: %v", err))
+	}
 	return func(ctx context.Context, next graphql.Resolver) (any, error) {
 		if fc := graphql.GetFieldContext(ctx); fc != nil {
 			for _, arg := range fc.Args {
@@ -36,8 +40,9 @@ type validatable interface {
 }
 
 type runtime struct {
-	validator  *validator.Validate
-	fieldCache sync.Map // map[reflect.Type]map[string]*field
+	validator    *validator.Validate
+	fieldCache   sync.Map // map[reflect.Type]map[string]*field
+	translations translationState
 }
 
 type field struct {
@@ -47,7 +52,104 @@ type field struct {
 	typ      reflect.Type
 }
 
-func newRuntime() *runtime {
+type (
+	// Option customises the runtime middleware during construction.
+	Option func(*settings) error
+
+	settings struct {
+		validator    *validator.Validate
+		translations translationState
+	}
+
+	translationState struct {
+		translators map[string]ut.Translator
+		defaultLang string
+		pickLang    func(context.Context) string
+	}
+)
+
+// TranslationRegistration wires a translator for a specific language.
+type TranslationRegistration struct {
+	Lang       string
+	Translator ut.Translator
+	Init       func(*validator.Validate, ut.Translator) error
+}
+
+// TranslationConfig controls translation behaviour for validation errors.
+type TranslationConfig struct {
+	Registrations []TranslationRegistration
+	DefaultLang   string
+	PickLang      func(context.Context) string
+}
+
+// WithTranslations registers translation handlers that complement directive messages.
+func WithTranslations(cfg TranslationConfig) Option {
+	return func(s *settings) error {
+		if len(cfg.Registrations) == 0 {
+			return errors.New("runtime: WithTranslations requires at least one registration")
+		}
+
+		translators := make(map[string]ut.Translator, len(cfg.Registrations))
+		for _, reg := range cfg.Registrations {
+			if reg.Lang == "" {
+				return errors.New("runtime: translator language must not be empty")
+			}
+			if reg.Translator == nil {
+				return fmt.Errorf("runtime: translator missing for %q", reg.Lang)
+			}
+			if _, exists := translators[reg.Lang]; exists {
+				return fmt.Errorf("runtime: duplicate translator for %q", reg.Lang)
+			}
+
+			if reg.Init != nil {
+				if err := reg.Init(s.validator, reg.Translator); err != nil {
+					return fmt.Errorf("runtime: initializing translator %q failed: %w", reg.Lang, err)
+				}
+			}
+
+			translators[reg.Lang] = reg.Translator
+		}
+
+		defaultLang := cfg.DefaultLang
+		if defaultLang == "" {
+			defaultLang = cfg.Registrations[0].Lang
+		}
+		if _, ok := translators[defaultLang]; !ok {
+			return fmt.Errorf("runtime: default language %q is not registered", defaultLang)
+		}
+
+		picker := cfg.PickLang
+		if picker == nil {
+			picker = func(context.Context) string { return defaultLang }
+		}
+
+		s.translations = translationState{
+			translators: translators,
+			defaultLang: defaultLang,
+			pickLang:    picker,
+		}
+		return nil
+	}
+}
+
+func newRuntime(opts ...Option) (*runtime, error) {
+	s := &settings{
+		validator: defaultValidator(),
+	}
+
+	for _, opt := range opts {
+		if err := opt(s); err != nil {
+			return nil, err
+		}
+	}
+
+	return &runtime{
+		validator:    s.validator,
+		translations: s.translations,
+	}, nil
+}
+
+func defaultValidator() *validator.Validate {
 	v := validator.New(validator.WithRequiredStructEnabled())
 
 	// Use the JSON tag name in error messages instead of the Go struct field name because
@@ -62,7 +164,7 @@ func newRuntime() *runtime {
 		return fld.Name
 	})
 
-	return &runtime{validator: v}
+	return v
 }
 
 // validate runs go-playground/validator against the supplied value and maps
@@ -72,6 +174,8 @@ func (r *runtime) validate(ctx context.Context, root any) error {
 		return nil
 	}
 
+	translator := r.translatorFor(ctx)
+
 	if err := r.validator.StructCtx(ctx, root); err != nil {
 		var ves validator.ValidationErrors
 		if !errors.As(err, &ves) || len(ves) == 0 {
@@ -80,7 +184,7 @@ func (r *runtime) validate(ctx context.Context, root any) error {
 
 		for i, ve := range ves {
 			pctx := r.getPathContext(ctx, root, ve)
-			msg := r.messageFor(root, ve)
+			msg := r.messageFor(root, ve, translator)
 
 			err = &gqlerror.Error{
 				Message: msg,
@@ -193,9 +297,14 @@ func (r *runtime) fieldFor(typ reflect.Type, goName string) *field {
 	return out[goName]
 }
 
-func (r *runtime) messageFor(root any, fieldError validator.FieldError) string {
+func (r *runtime) messageFor(root any, fieldError validator.FieldError, translator ut.Translator) string {
 	if msg := r.lookupMessage(root, fieldError); msg != "" {
 		return msg
+	}
+	if translator != nil {
+		if translated := fieldError.Translate(translator); translated != "" {
+			return translated
+		}
 	}
 	if p := fieldError.Param(); p != "" {
 		return fmt.Sprintf("%s failed on the '%s' rule (param: %s)", fieldError.Field(), fieldError.Tag(), p)
@@ -319,4 +428,23 @@ func derefType(t reflect.Type) reflect.Type {
 		t = t.Elem()
 	}
 	return t
+}
+
+func (r *runtime) translatorFor(ctx context.Context) ut.Translator {
+	ts := r.translations
+	if ts.pickLang == nil || len(ts.translators) == 0 {
+		return nil
+	}
+
+	lang := ts.pickLang(ctx)
+	if lang != "" {
+		if tr, ok := ts.translators[lang]; ok {
+			return tr
+		}
+	}
+
+	if ts.defaultLang == "" {
+		return nil
+	}
+	return ts.translators[ts.defaultLang]
 }

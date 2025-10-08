@@ -82,6 +82,36 @@ business logic runs. Custom `message` tags added by the plugin automatically
 override the default validator error text. The runtime middleware returns
 GraphQL errors that point at the offending fields (e.g. `input.bic`).
 
+Need locale-aware error strings? Compose the middleware with translation
+options. Directive-level `message:"..."` tags still win when present.
+
+```go
+transOpt := runtime.WithTranslations(runtime.TranslationConfig{
+    Registrations: []runtime.TranslationRegistration{
+        {
+            Lang:       "en",
+            Translator: enTranslator, // e.g. ut.New(enLocale, enLocale).GetTranslator("en")
+            Init: func(v *validator.Validate, trans ut.Translator) error {
+                return v.RegisterTranslation("required", trans, addRequired, translateRequired)
+            },
+        },
+    },
+    DefaultLang: "en",
+    PickLang: func(ctx context.Context) string {
+        if viewer, ok := viewerFrom(ctx); ok {
+            return viewer.Locale
+        }
+        return ""
+    },
+})
+
+srv.AroundFields(runtime.Middleware(transOpt))
+```
+
+Translation callbacks receive the shared validator instance during
+initialisation. Use the hook to register per-language strings while letting the
+middleware choose the active translator per request.
+
 ## Example project
 
 A runnable gqlgen server that uses the plugin lives in [example](/example)
